@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.cumba</groupId>
+        <artifactId>cumba-oss-commons-parent</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>coverage</artifactId>
+    <packaging>pom</packaging>
+
+    <!--
+        Coverage aggregator: an internal reporting module, not a
+        consumable artifact. Never publish it.
+    -->
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <!--
+            Same intent as maven.deploy.skip above, for the Central path:
+            central-publishing-maven-plugin replaces maven-deploy-plugin
+            rather than wrapping it, so it does not honour that flag.
+            Without this, the coverage aggregator would be published to
+            Maven Central as a public artifact.
+        -->
+        <central.skipPublishing>true</central.skipPublishing>
+    </properties>
+    <name>Aggregate JaCoCo Coverage Report</name>
+
+    <!--
+        ⚠ THESE DEPENDENCIES ARE THE REPORT.
+
+        `jacoco:report-aggregate` builds its report from the modules listed
+        here — it does NOT scan the reactor. This block was previously EMPTY
+        (in both the coverage-dev and coverage-main modules it replaces), so
+        the aggregate it produced was a single empty element:
+
+            <report name="Aggregate JaCoCo Coverage Report (main profile)"/>
+
+        188 bytes, zero packages, zero classes — while the per-module reports
+        under lib/*/target/site/jacoco/ held real data for 124 classes. Since
+        `sonar.coverage.jacoco.xmlReportPaths` points here, Sonar was reading
+        that empty file.
+
+        ⭐ Every new lib module MUST be added here as well as to the parent's
+        <modules>, or its coverage silently vanishes from the aggregate and
+        from Sonar. There is no build error for forgetting.
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>net.cumba</groupId>
+            <artifactId>cumba-oss-help</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.cumba</groupId>
+            <artifactId>cumba-oss-web-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.cumba</groupId>
+            <artifactId>cumba-oss-cdisc-library</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.cumba</groupId>
+            <artifactId>cumba-oss-bootstrap</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+                Guard: the parent's lib/* <modules> and this module's
+                <dependencies> must name the same set of artifacts.
+
+                ⚠ WHY. `jacoco:report-aggregate` builds its report from the
+                <dependencies> above, NOT from the reactor. A lib module added
+                to the parent's <modules> but not here vanishes from the
+                aggregate and from Sonar's coverage — with a green build and no
+                warning. That is exactly how this module's predecessors ended
+                up emitting a 188-byte empty report while 124 classes had real
+                per-module coverage. A two-place edit with a silent failure
+                mode needs a machine check, not a README note.
+
+                Both directions are checked: a module missing here (coverage
+                silently under-counts) and a stale entry here naming a module
+                that no longer exists.
+
+                ⚠ IMPLEMENTATION NOTE. Maven interpolates ${project.*} into
+                the condition as the LISTS' toString() output, which is what
+                the parsing below consumes. That couples the rule to a
+                formatting detail — but it fails CLOSED: if the format ever
+                changes, the substring probes stop matching and every module is
+                reported missing, so the build breaks loudly rather than
+                quietly passing a check that no longer checks anything.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>coverage-covers-every-module</id>
+                        <phase>validate</phase>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <evaluateBeanshell>
+                                    <condition><![CDATA[
+String mods = "${project.parent.modules}";
+String deps = "${project.dependencies}";
+
+java.util.List expected = new java.util.ArrayList();
+String inner = mods.substring(1, mods.length() - 1);
+String[] parts = inner.split(",");
+for (int i = 0; i < parts.length; i++) {
+    String mod = parts[i].trim();
+    if (!mod.startsWith("lib/")) continue;
+    expected.add(mod.substring(mod.lastIndexOf('/') + 1));
+}
+
+java.util.List missing = new java.util.ArrayList();
+for (int i = 0; i < expected.size(); i++) {
+    String art = (String) expected.get(i);
+    if (deps.indexOf("groupId=net.cumba, artifactId=" + art + ",") < 0) {
+        missing.add(art);
+    }
+}
+
+java.util.List stale = new java.util.ArrayList();
+String[] dparts = deps.split("Dependency \\{");
+for (int i = 0; i < dparts.length; i++) {
+    String d = dparts[i];
+    int g = d.indexOf("groupId=net.cumba, artifactId=");
+    if (g < 0) continue;
+    String rest = d.substring(g + "groupId=net.cumba, artifactId=".length());
+    String art = rest.substring(0, rest.indexOf(','));
+    if (!expected.contains(art)) stale.add(art);
+}
+
+if (!missing.isEmpty()) {
+    print("  MISSING from coverage/pom.xml <dependencies>: " + missing);
+    print("  -> these modules build, but contribute NO coverage to the aggregate or to Sonar.");
+}
+if (!stale.isEmpty()) {
+    print("  STALE in coverage/pom.xml <dependencies>: " + stale);
+    print("  -> no matching lib/* entry in the parent's <modules>.");
+}
+missing.isEmpty() && stale.isEmpty();
+                                    ]]></condition>
+                                    <message>coverage/pom.xml's &lt;dependencies&gt; is out of sync with the parent's lib/* &lt;modules&gt; (details above). The aggregate JaCoCo report is built from that dependency list, so a module absent there is silently missing from coverage and from Sonar.</message>
+                                </evaluateBeanshell>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>report-aggregate</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report-aggregate</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.reporting.outputDirectory}/jacoco-aggregate</outputDirectory>
+                            <excludes>${jacoco.coverage.excludes}</excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

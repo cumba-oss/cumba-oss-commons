@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+
+    <!-- ================================================================ -->
+    <!-- Targeted suppressions for the bootstrap launcher.                -->
+    <!--    One <Match> per unique (class, method-or-field, bug pattern). -->
+    <!-- ================================================================ -->
+
+    <Match>
+        <!-- THROWS_METHOD_THROWS_CLAUSE_BASIC_EXCEPTION: the launcher must
+             propagate ANY checked exception thrown by the target program's
+             main(String[]) unchanged, so `throws Exception` is the correct
+             (and only) signature for the invoke path and the public launch
+             entry point. -->
+        <Class name="net.cumba.bootstrap.Launcher" />
+        <Or>
+            <Method name="launch" />
+            <Method name="invokeMain" />
+        </Or>
+        <Bug pattern="THROWS_METHOD_THROWS_CLAUSE_BASIC_EXCEPTION" />
+    </Match>
+
+    <Match>
+        <!-- EI_EXPOSE_REP2: VariableResolver intentionally keeps a LIVE
+             reference to the caller's properties map. The launcher applies
+             [properties] in order and the resolver must see each entry the
+             instant it is added, so a later `${earlier}` reference resolves.
+             A defensive copy would break that contract. -->
+        <Class name="net.cumba.bootstrap.VariableResolver" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+
+</FindBugsFilter>

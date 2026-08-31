@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+
+    <!-- ================================================================ -->
+    <!-- 1. Generic project-wide FP categories                            -->
+    <!--    Every instance of these patterns is structurally an FP in     -->
+    <!--    this codebase by project convention. Only categories with     -->
+    <!--    at least one finding in this module are listed.               -->
+    <!-- ================================================================ -->
+
+    <Match>
+        <!-- Idiomatic SPI provider / supplier shape: constructors parse a
+             file or URI and throw IOException; the throw is documented
+             contract and the constructor fails fast without publishing
+             `this`. -->
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+
+    <!-- ================================================================ -->
+    <!-- 2. Targeted suppressions                                         -->
+    <!--    One <Match> per unique (class, method-or-field, bug pattern)  -->
+    <!--    tuple. Multiple findings sharing the same tuple collapse into -->
+    <!--    one Match (filter has no line-level scope).                   -->
+    <!-- ================================================================ -->
+
+    <Match>
+        <!-- Cache exposure is by design; clients reconfigure the shared
+             ApiCache instance. -->
+        <Class name="net.cumba.web.api.AbstractApiClient" />
+        <Field name="cache" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+
+    <Match>
+        <!-- CacheEntry headers are defensively wrapped in an
+             unmodifiableMap at construction time. -->
+        <Class name="net.cumba.web.api.cache.CacheEntry" />
+        <Field name="headers" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+
+    <Match>
+        <!-- ObjectMapper exposure is by design; clients reconfigure the
+             shared mapper. -->
+        <Class name="net.cumba.web.api.json.JsonApiClient" />
+        <Field name="objectMapper" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+
+    <Match>
+        <!-- DOM Element returned to API consumers by design; XmlApiClient
+             callers operate directly on the parsed element tree. -->
+        <Class name="net.cumba.web.api.xml.XmlElementResource" />
+        <Field name="element" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+
+    <Match>
+        <!-- Builder stores the caller-supplied ApiCache by design; the
+             cache is intentionally shared across clients. -->
+        <Class name="net.cumba.web.api.AbstractApiClient$AbstractBuilder" />
+        <Field name="cache" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+
+    <Match>
+        <!-- Dev/test resource: list reference is intentionally stored as
+             a live view for fixture mutation. -->
+        <Class name="net.cumba.web.api.dev.ListResource" />
+        <Field name="list" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+
+    <Match>
+        <!-- Dev/test resource: map reference is intentionally stored as
+             a live view for fixture mutation. -->
+        <Class name="net.cumba.web.api.dev.MapResource" />
+        <Field name="map" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+
+    <Match>
+        <!-- Builder stores the caller-supplied ObjectMapper by design;
+             the mapper is intentionally shared/reconfigured. -->
+        <Class name="net.cumba.web.api.json.JsonApiClient$Builder" />
+        <Field name="objectMapper" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+
+    <Match>
+        <!-- Path.getFileName chain; only null for root paths, unreachable
+             for HTTP URI paths derived from cache keys. -->
+        <Class name="net.cumba.web.api.cache.FileApiCache" />
+        <Method name="write" />
+        <Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE" />
+    </Match>
+
+    <Match>
+        <!-- Path.getFileName chain; only null for root paths, unreachable
+             for HTTP URI paths derived from cache keys. -->
+        <Class name="net.cumba.web.api.cache.FileApiCache" />
+        <Method name="writeMetaFile" />
+        <Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE" />
+    </Match>
+
+    <Match>
+        <!-- Path.getFileName chain; only null for root paths, unreachable
+             for HTTP URI paths derived from cache keys. -->
+        <Class name="net.cumba.web.api.cache.GzipFileApiCache" />
+        <Method name="write" />
+        <Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE" />
+    </Match>
+
+    <Match>
+        <!-- HttpResponse is a record whose compact constructor wraps the
+             headers map with Collections.unmodifiableMap. The auto-generated
+             accessor returns the field reference, which Spotbugs flags as
+             EI_EXPOSE_REP — but the reference points to an unmodifiable
+             view, so mutation throws UnsupportedOperationException.
+             Spotbugs' bytecode-level analysis does not see the compact-
+             constructor wrap. -->
+        <Class name="net.cumba.web.api.http.HttpResponse" />
+        <Method name="headers" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+
+</FindBugsFilter>

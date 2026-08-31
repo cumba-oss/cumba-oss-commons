@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>cumba-oss-bootstrap</artifactId>
+    <packaging>jar</packaging>
+    <parent>
+        <groupId>net.cumba</groupId>
+        <artifactId>cumba-oss-commons-parent</artifactId>
+        <version>${revision}</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <inceptionYear>2026</inceptionYear>
+    <description>
+        Dependency-free launcher. Reads a sidecar INI-style config named
+        after the jar it was loaded from (foo.jar -> foo.conf, sitting next
+        to the jar), applies system properties (with environment / prior-
+        property interpolation), builds a globbed and de-duplicated
+        classpath, and reflectively invokes a configured main class inside
+        an isolated URLClassLoader. JDK-only; nothing ships in libs/.
+    </description>
+    <organization>
+        <name>P300</name>
+    </organization>
+
+    <properties>
+        <mockito.agent>-javaagent:${org.mockito:mockito-core:jar}</mockito.agent>
+        <!-- New module: enforce the plan's 0.85 line-coverage target via the
+             module's own floor, so a plain full-reactor `verify` gates it
+             without the global -Djacoco.line.coverage clobber trap. -->
+        <jacoco.line.coverage>0.85</jacoco.line.coverage>
+    </properties>
+
+    <dependencies>
+
+        <!-- NO runtime dependencies: JDK only. JSpecify is compile-time only
+             (provided scope), so the runtime classpath stays JDK-only. -->
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>${plugin.maven-jar-plugin.version}</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>net.cumba.bootstrap.Bootstrap</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <reporting>
+    </reporting>
+
+</project>
