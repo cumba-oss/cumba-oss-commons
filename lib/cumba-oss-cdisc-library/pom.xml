@@ -13,6 +13,22 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
+    <!--
+        REQUIRED by Maven Central, and it must be declared HERE: <name> is
+        one of the few POM elements Maven does NOT inherit from the parent,
+        so a module without its own name publishes a nameless artifact and
+        the Central bundle is rejected with "Project name is missing".
+    -->
+    <name>Cumba OSS Commons :: CDISC Library Client</name>
+    <!--
+        Declared explicitly rather than inherited. The parent carries
+        child.project.url.inherit.append.path="false", which correctly stops the
+        <scm> URLs appending the module path but was measured NOT to take effect
+        for the project <url> here (Maven 3.9.16): the effective pom still read
+        .../cumba-oss-commons/lib/<module>, a 404. An explicit value removes the
+        dependence on that behaviour entirely.
+    -->
+    <url>https://github.com/cumba-oss/cumba-oss-commons</url>
     <inceptionYear>2026</inceptionYear>
     <description>
         CDISC Library REST client and model DTOs (rule / SDTM / ADaM / CT /

@@ -1045,7 +1045,13 @@
         mirror, not the internal Gitea origin, because it must resolve for
         anyone consuming the artifact.
     -->
-    <url>https://github.com/cumba-oss/cumba-oss-commons</url>
+    <!--
+        child.project.url.inherit.append.path="false": without it Maven appends each
+        module's directory to the inherited URL, so cumba-oss-help would publish
+        .../cumba-oss-commons/lib/cumba-oss-help — verified to be a 404. The same
+        applies to the <scm> URLs below.
+    -->
+    <url child.project.url.inherit.append.path="false">https://github.com/cumba-oss/cumba-oss-commons</url>
     <organization>
         <name>P300</name>
         <url>https://www.p-300.com</url>
@@ -1090,7 +1096,9 @@
         <tag>HEAD</tag> is deliberate: releases are cut by pushing a tag, not by
         maven-release-plugin, so nothing rewrites this element.
     -->
-    <scm>
+    <scm child.scm.url.inherit.append.path="false"
+         child.scm.connection.inherit.append.path="false"
+         child.scm.developerConnection.inherit.append.path="false">
         <connection>scm:git:https://github.com/cumba-oss/cumba-oss-commons.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/cumba-oss/cumba-oss-commons.git</developerConnection>
         <url>https://github.com/cumba-oss/cumba-oss-commons</url>
