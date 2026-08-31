@@ -349,9 +349,19 @@ jobs:
       # `gh` is preinstalled on GitHub-hosted runners, so this needs no
       # third-party action — one less dependency to pin and audit in a public
       # repo. --verify-tag refuses to invent a tag that does not exist.
+      #
+      # ⚠ GH_REPO is REQUIRED here. This job deliberately has no
+      # actions/checkout — it only needs the artifact, not the source — but
+      # `gh` resolves its target repository from the git remote in the working
+      # directory. Without a checkout and without GH_REPO it dies before making
+      # any API call:
+      #     failed to run git: fatal: not a git repository
+      # which is how the v0.0.2 release job failed. GH_REPO is the fix that
+      # keeps the checkout unnecessary.
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -eo pipefail
           find release-jars -name '*.jar' -print
