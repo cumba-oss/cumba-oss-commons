@@ -169,13 +169,17 @@ public class XmlApiClient extends AbstractApiClient
      */
     protected static @Nullable String readBodySafe(HttpResponse aResponse)
     {
-        if (aResponse.body() == null)
+        // Read body() ONCE into a local: null-checking one call and dereferencing
+        // a second is what SpotBugs 4.10 flags as
+        // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE.
+        InputStream body = aResponse.body();
+        if (body == null)
         {
             return null;
         }
         try
         {
-            return new String(aResponse.body().readAllBytes(), StandardCharsets.UTF_8);
+            return new String(body.readAllBytes(), StandardCharsets.UTF_8);
         }
         catch (IOException _)
         {
