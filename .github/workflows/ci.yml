@@ -10,10 +10,12 @@
 #   1. NO CONTAINER. The Gitea job runs in a private image on an internal
 #      registry, which a GitHub runner cannot pull. Java comes from
 #      actions/setup-java instead.
-#   2. ARTIFACT ACTIONS ARE @v4 — the exact OPPOSITE of the Gitea file, which
-#      is pinned to @v3 because Gitea's act_runner implements the GHES-style
-#      artifact API and rejects v4. On GitHub, v3 is retired and v4 is the
-#      only working version. Neither pin is portable; do not "unify" them.
+#   2. ARTIFACT ACTIONS TRACK THE LATEST MAJOR — the exact OPPOSITE of the
+#      Gitea file, which is pinned to @v3 because act_runner implements the
+#      GHES-style artifact API and rejects v4+. On GitHub, v3 is retired and
+#      old majors get force-migrated off deprecated Node runtimes. Neither pin
+#      is portable; do not "unify" them, and do not bump the Gitea file to
+#      match — it would break that runner.
 #   3. NO MAVEN MIRROR. Everything resolves from Maven Central. Verified by a
 #      cold build with an empty local repo and no settings.xml: 1030
 #      artifacts, all from `central`.
@@ -68,10 +70,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '25'
@@ -82,7 +84,7 @@ jobs:
       # — run. Content-keyed on the poms, so once an entry exists for these
       # poms the save is a no-op.
       - name: Restore Maven dependencies
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
@@ -121,7 +123,7 @@ jobs:
 
       - name: Upload Maven Build log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: maven-build-log
           path: maven-build.log
@@ -135,7 +137,7 @@ jobs:
 
       - name: Upload Maven Test log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: maven-verify-log
           path: maven-verify.log
@@ -144,7 +146,7 @@ jobs:
 
       - name: Upload static-analysis reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: analysis-reports
           path: |
@@ -163,7 +165,7 @@ jobs:
       # in-repo path would not be safe. The pom pins the history to
       # ${user.home} to match.
       - name: Restore Pitest history
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.pitest-history
           key: ${{ runner.os }}-pitest-${{ github.run_id }}
@@ -196,7 +198,7 @@ jobs:
 
       - name: Upload Pitest log and reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pitest-reports
           path: |
@@ -227,7 +229,7 @@ jobs:
       # 0.1.0-SNAPSHOT and then 9.9.9 matched 8 jars for 4 modules.
       - name: Upload release jars
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-jars
           path: lib/*/target/*-${{ steps.ver.outputs.version }}.jar
@@ -243,14 +245,14 @@ jobs:
       # cache access, so a save there fails; restores still work, so fork PRs
       # keep the warm-start benefit without erroring.
       - name: Save Maven dependencies
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         if: ${{ always() && github.event_name == 'push' }}
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
 
       - name: Save Pitest history
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         if: ${{ always() && github.event_name == 'push' && steps.pitest.conclusion != 'skipped' }}
         with:
           path: ~/.pitest-history
@@ -275,14 +277,14 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # setup-java writes the settings.xml <server id="central"> AND imports the
       # GPG key, so neither a hand-rolled settings file nor a third-party GPG
       # action is needed. server-username/server-password name the ENV VARS the
       # generated settings.xml reads — they are not the values themselves.
       - name: Set up JDK and signing key
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '25'
@@ -290,7 +292,12 @@ jobs:
           server-username: CENTRAL_USERNAME
           server-password: CENTRAL_PASSWORD
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-          gpg-passphrase: GPG_PASSPHRASE
+          # No gpg-passphrase here on purpose: that input makes setup-java write
+          # <gpg.passphrase> into settings.xml, and maven-gpg-plugin deprecated
+          # that property ("it may leak sensitive information"). The passphrase
+          # is passed as MAVEN_GPG_PASSPHRASE on the step below instead, which
+          # is what the plugin's own warning tells you to use. Importing the key
+          # does not need the passphrase.
 
       - name: Determine revision
         id: ver
@@ -307,17 +314,21 @@ jobs:
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          # Read directly by maven-gpg-plugin in batch mode. Replaces
+          # -Dgpg.passphrase=..., which the plugin deprecated: a -D value lands
+          # in the process command line where any other process on the host can
+          # read it, hence its "Sensitive content loaded from Mojo
+          # configuration" warning.
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -eo pipefail
           mvn -B -P deploy-central deploy \
               -DskipTests -DskipPmd -DskipSpotbugs -Dspotless.check=true \
-              -Dgpg.passphrase="$GPG_PASSPHRASE" \
               -Drevision=${{ steps.ver.outputs.version }} | tee maven-central.log
 
       - name: Upload Central publish log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: maven-central-log
           path: maven-central.log
@@ -341,7 +352,7 @@ jobs:
       contents: write
     steps:
       - name: Download release jars
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-jars
           path: release-jars
