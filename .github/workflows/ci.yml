@@ -304,24 +304,45 @@ jobs:
           # is what the plugin's own warning tells you to use. Importing the key
           # does not need the passphrase.
 
-      # ⚠ Without this the mutation of v0.0.3 recurs: gpg fails with
-      #     gpg: signing failed: No pinentry
-      # The pom passes --pinentry-mode loopback, but loopback only works if the
-      # AGENT permits it, and the runner's agent does not by default. It used to
-      # be configured as a side effect of setup-java's `gpg-passphrase` input;
-      # that input is gone (it writes the deprecated <gpg.passphrase> into
-      # settings.xml), so the agent is configured here explicitly instead — which
-      # is also the honest place for it, since it is a property of the runner,
-      # not of the Maven settings.
-      - name: Allow loopback pinentry
+      # A runner has no pinentry binary, so signing must never need a prompt.
+      #
+      # ⚠⚠ GNUPGHOME IS NOT ~/.gnupg HERE. setup-java imports the key into its
+      # own temp directory and exports GNUPGHOME to it, e.g.
+      #     /home/runner/work/_temp/setup-java-gpg-XXXXXX
+      # The first attempt at this step wrote the config to ~/.gnupg, which Maven
+      # never reads — so it changed nothing and the dry run failed again with
+      # "gpg: signing failed: No pinentry". Always use "$GNUPGHOME".
+      - name: Configure gpg for non-interactive signing
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -eo pipefail
-          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
-          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
-          echo "pinentry-mode loopback"  >> ~/.gnupg/gpg.conf
+          : "${GNUPGHOME:=$HOME/.gnupg}"
+          echo "GNUPGHOME=$GNUPGHOME"
+          mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
+          {
+            echo "allow-loopback-pinentry"
+            # The signing pass spans minutes; do not let the cache expire
+            # between the first artifact and the last.
+            echo "default-cache-ttl 7200"
+            echo "max-cache-ttl 7200"
+          } >> "$GNUPGHOME/gpg-agent.conf"
+          echo "pinentry-mode loopback" >> "$GNUPGHOME/gpg.conf"
           gpgconf --kill gpg-agent || true
           gpgconf --launch gpg-agent || true
+
+          # Prime the agent by signing a throwaway byte with the passphrase
+          # supplied explicitly. maven-gpg-plugin's later calls are then served
+          # from the agent cache and never reach for a pinentry, whether or not
+          # the plugin forwards the passphrase itself.
+          echo priming | gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$MAVEN_GPG_PASSPHRASE" --detach-sign -o /dev/null -
+          echo "agent primed OK"
+
+          echo "--- diagnostics ---"
+          gpg --version | head -2
           gpg --batch --list-secret-keys --keyid-format=long
+          command -v pinentry || echo "(no pinentry binary on PATH - expected)"
 
       - name: Determine revision
         id: ver
