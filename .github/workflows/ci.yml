@@ -36,6 +36,11 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+.[0-9]+'
   pull_request:
     branches: [main, master]
+  # Manual DRY RUN of the publishing path. The release path only executes on
+  # tags, so every defect in it has cost a tag to discover (v0.0.1 metadata,
+  # v0.0.3 gpg). This runs the full ladder and the real signing on a real
+  # runner, then stops short of uploading — see central.skipPublishing below.
+  workflow_dispatch:
 
 # Supersede an in-flight run when new commits land on the same ref. The Pitest
 # pass is the long pole, so without this two runs compete for a runner.
@@ -269,7 +274,7 @@ jobs:
   # until a release has gone through cleanly.
   publish-central:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -299,9 +304,33 @@ jobs:
           # is what the plugin's own warning tells you to use. Importing the key
           # does not need the passphrase.
 
+      # ⚠ Without this the mutation of v0.0.3 recurs: gpg fails with
+      #     gpg: signing failed: No pinentry
+      # The pom passes --pinentry-mode loopback, but loopback only works if the
+      # AGENT permits it, and the runner's agent does not by default. It used to
+      # be configured as a side effect of setup-java's `gpg-passphrase` input;
+      # that input is gone (it writes the deprecated <gpg.passphrase> into
+      # settings.xml), so the agent is configured here explicitly instead — which
+      # is also the honest place for it, since it is a property of the runner,
+      # not of the Maven settings.
+      - name: Allow loopback pinentry
+        run: |
+          set -eo pipefail
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          echo "pinentry-mode loopback"  >> ~/.gnupg/gpg.conf
+          gpgconf --kill gpg-agent || true
+          gpgconf --launch gpg-agent || true
+          gpg --batch --list-secret-keys --keyid-format=long
+
       - name: Determine revision
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-DRYRUN" >> "$GITHUB_OUTPUT"
+          fi
 
       # The gates already ran in `build`; this re-resolves and packages, then
       # signs and uploads. -DskipTests avoids re-running the suite, and
@@ -322,9 +351,19 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -eo pipefail
+          # A manual run signs everything but stops before uploading, so the gpg
+          # path is exercised on a real runner without spending a version.
+          # central.skipPublishing is the pom property the plugin's
+          # <skipPublishing> reads; signing happens at `verify`, before it.
+          SKIP=false
+          [ "${{ github.event_name }}" = "workflow_dispatch" ] && SKIP=true
+          echo "central.skipPublishing=$SKIP"
           mvn -B -P deploy-central deploy \
               -DskipTests -DskipPmd -DskipSpotbugs -Dspotless.check=true \
+              -Dcentral.skipPublishing="$SKIP" \
               -Drevision=${{ steps.ver.outputs.version }} | tee maven-central.log
+          echo "--- signatures produced ---"
+          find . -name '*.asc' -path '*/target/*' | sort
 
       - name: Upload Central publish log
         if: always()
