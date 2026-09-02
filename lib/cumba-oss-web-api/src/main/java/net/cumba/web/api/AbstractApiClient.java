@@ -142,12 +142,8 @@ public abstract class AbstractApiClient
         {
             statusCode = response.statusCode();
             responseHeaders = response.headers();
-            // Read body() ONCE into a local. Calling it twice - null-check on the
-            // first call, dereference on the second - is what SpotBugs 4.10's
-            // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE flags: nothing guarantees the
-            // second call returns the same non-null value.
-            InputStream rawBody = response.body();
-            body = rawBody != null ? new String(rawBody.readAllBytes(), StandardCharsets.UTF_8)
+            body = response.body() != null
+                    ? new String(response.body().readAllBytes(), StandardCharsets.UTF_8)
                     : null;
         }
 

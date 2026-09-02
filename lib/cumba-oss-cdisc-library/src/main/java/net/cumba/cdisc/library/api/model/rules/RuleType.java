@@ -9,9 +9,9 @@ import org.jspecify.annotations.Nullable;
  * <p>
  * Enumerates the types of conformance rules supported by the CDISC Rules Engine, classifying rules
  * by what they check (record data, dataset metadata, variable metadata, domain presence) and
- * whether they produce per-record or per-domain outcomes. The {@code isValueBased()} flag indicates
- * whether a rule type evaluates individual data values (true) or dataset/variable-level metadata
- * (false). Unrecognized API values resolve to {@link #UNKNOWN}.
+ * whether they produce per-record or per-domain outcomes. The {@link #isValueBased()} flag
+ * indicates whether a rule type evaluates individual data values (true) or dataset/variable-level
+ * metadata (false). Unrecognized API values resolve to {@link #UNKNOWN}.
  * </p>
  */
 public enum RuleType

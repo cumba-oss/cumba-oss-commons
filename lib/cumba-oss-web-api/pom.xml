@@ -4,14 +4,14 @@
     xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>cumba-oss-web-api</artifactId>
-    <packaging>jar</packaging>
     <parent>
         <groupId>net.cumba</groupId>
         <artifactId>cumba-oss-commons-parent</artifactId>
         <version>${revision}</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
+
+    <artifactId>cumba-oss-web-api</artifactId>
 
     <!--
         REQUIRED by Maven Central, and it must be declared HERE: <name> is
@@ -20,24 +20,16 @@
         the Central bundle is rejected with "Project name is missing".
     -->
     <name>Cumba OSS Commons :: Web API Client</name>
-    <!--
-        Declared explicitly rather than inherited. The parent carries
-        child.project.url.inherit.append.path="false", which correctly stops the
-        <scm> URLs appending the module path but was measured NOT to take effect
-        for the project <url> here (Maven 3.9.16): the effective pom still read
-        .../cumba-oss-commons/lib/<module>, a 404. An explicit value removes the
-        dependence on that behaviour entirely.
-    -->
     <url>https://github.com/cumba-oss/cumba-oss-commons</url>
+    <packaging>jar</packaging>
+
     <inceptionYear>2026</inceptionYear>
     <description>
         Lightweight HATEOAS / JSON-over-HTTP client toolkit: Link,
         ApiResource, AbstractApiClient, JdkHttpTransport, FileApiCache,
-        and friends. Used by cumba-oss-cdisc-library as its REST plumbing.
+        and friends. Used by corej-cdisc-library as its REST plumbing.
+        Ships the dataviewer's net.cumba.web.api.* source verbatim.
     </description>
-    <organization>
-        <name>P300</name>
-    </organization>
 
     <properties>
         <mockito.agent>-javaagent:${org.mockito:mockito-core:jar}</mockito.agent>
@@ -89,8 +81,5 @@
 
     </dependencies>
 
-
-    <reporting>
-    </reporting>
 
 </project>

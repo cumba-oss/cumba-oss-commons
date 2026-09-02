@@ -39,6 +39,19 @@ public interface RuleOperation extends ApiResource
     }
 
 
+    /**
+     * External-dictionary type ({@code meddra}, {@code whodrug}, {@code unii}, …) for the
+     * {@code valid_external_dictionary_*} / {@code dictionary_has_decode} operations. Without this
+     * binding a library-sourced dictionary operation always looked typeless to the engine, which is
+     * a load error (D13 item 3: an operation naming no type can never be answered by any installed
+     * dictionary).
+     */
+    default Optional<String> externalDictionaryType()
+    {
+        return getString("external_dictionary_type");
+    }
+
+
     /** Returns the operator as a typed enum. */
     default OperationOperator operatorEnum()
     {

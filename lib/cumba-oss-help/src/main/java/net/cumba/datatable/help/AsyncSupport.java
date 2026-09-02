@@ -72,6 +72,10 @@ public class AsyncSupport
             // exception bubbles through `thenCompose` / `allOf` layers. Walk the cause chain
             // until we find a meaningful endpoint or run out.
             Throwable cause = ce;
+            // `ne.getCause() != ne` is a deliberate IDENTITY check, not a value comparison: it is
+            // the self-referential-cause guard that stops this loop spinning forever when an
+            // exception is its own cause. Objects.equals() here would express the wrong intent
+            // (and would start consulting a subclass's equals()).
             while (cause instanceof CompletionException ne && ne.getCause() != null
                     && ne.getCause() != ne)
             {

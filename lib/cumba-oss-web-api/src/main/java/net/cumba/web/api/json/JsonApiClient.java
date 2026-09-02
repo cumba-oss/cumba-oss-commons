@@ -3,7 +3,6 @@ package net.cumba.web.api.json;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import net.cumba.web.api.AbstractApiClient;
 import net.cumba.web.api.ApiException;
@@ -156,17 +155,13 @@ public class JsonApiClient extends AbstractApiClient
      */
     protected static @Nullable String readBodySafe(HttpResponse aResponse)
     {
-        // Read body() ONCE into a local: null-checking one call and dereferencing
-        // a second is what SpotBugs 4.10 flags as
-        // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE.
-        InputStream body = aResponse.body();
-        if (body == null)
+        if (aResponse.body() == null)
         {
             return null;
         }
         try
         {
-            return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+            return new String(aResponse.body().readAllBytes(), StandardCharsets.UTF_8);
         }
         catch (IOException _)
         {
