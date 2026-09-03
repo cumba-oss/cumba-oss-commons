@@ -144,6 +144,26 @@ class HttpResponseTest
         assertNull(response.header("X-Empty"));
     }
 
+
+    @Test
+    void headerLookupIsCaseInsensitive()
+    {
+        Map<String, List<String>> headers = Map.of("Content-Encoding", List.of("gzip"));
+        HttpResponse response = new HttpResponse(200, headers, null);
+        assertEquals("gzip", response.header("content-encoding"));
+        assertEquals("gzip", response.header("CONTENT-ENCODING"));
+        assertEquals("gzip", response.header("Content-Encoding"));
+    }
+
+
+    @Test
+    void headersMapGetIsCaseInsensitive()
+    {
+        Map<String, List<String>> headers = Map.of("Content-Type", List.of("application/json"));
+        HttpResponse response = new HttpResponse(200, headers, null);
+        assertEquals(List.of("application/json"), response.headers().get("content-type"));
+    }
+
     // --- Body ---
 
 

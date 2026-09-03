@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -25,6 +26,13 @@ import org.jspecify.annotations.Nullable;
  * <p>
  * The {@code body} component may be {@code null} when the response has no body.
  * </p>
+ *
+ * <p>
+ * Header names are matched case-insensitively (per RFC 9110): the {@code headers} map is stored in
+ * a case-insensitive {@link TreeMap}, so both {@link #header(String)} and direct
+ * {@code headers().get(name)} lookups ignore case. Where a source map contains entries that differ
+ * only by case, the last one wins.
+ * </p>
  */
 public record HttpResponse(int statusCode, Map<String, List<String>> headers,
         @Nullable InputStream body) implements AutoCloseable
@@ -32,12 +40,23 @@ public record HttpResponse(int statusCode, Map<String, List<String>> headers,
 
     public HttpResponse
     {
-        headers = headers != null ? Collections.unmodifiableMap(headers) : Collections.emptyMap();
+        if (headers != null)
+        {
+            TreeMap<String, List<String>> caseInsensitive = new TreeMap<>(
+                    String.CASE_INSENSITIVE_ORDER);
+            caseInsensitive.putAll(headers);
+            headers = Collections.unmodifiableMap(caseInsensitive);
+        }
+        else
+        {
+            headers = Collections.emptyMap();
+        }
     }
 
 
     /**
-     * Returns the first value for the given header name, or {@code null} if not set.
+     * Returns the first value for the given header name, or {@code null} if not set. The lookup is
+     * case-insensitive.
      */
     public @Nullable String header(String name)
     {

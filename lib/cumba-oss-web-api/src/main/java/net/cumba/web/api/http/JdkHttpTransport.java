@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.GZIPInputStream;
 
 /**
  * {@link HttpTransport} implementation backed by {@link java.net.http.HttpClient}.
@@ -101,6 +102,17 @@ public final class JdkHttpTransport implements HttpTransport, AutoCloseable
             }
         }
 
+        // Advertise gzip support unless the caller already set an Accept-Encoding. The JDK
+        // HttpClient neither requests nor transparently decodes gzip, so we negotiate it here and
+        // decode the response below. Header names are matched case-insensitively so a caller's
+        // lowercase header is not duplicated.
+        boolean callerSetAcceptEncoding = request.headers().keySet().stream()
+                .anyMatch(name -> name.equalsIgnoreCase("Accept-Encoding"));
+        if (!callerSetAcceptEncoding)
+        {
+            jdkBuilder.header("Accept-Encoding", "gzip");
+        }
+
         java.net.http.HttpRequest jdkRequest = jdkBuilder.build();
 
         try
@@ -111,7 +123,22 @@ public final class JdkHttpTransport implements HttpTransport, AutoCloseable
             // Convert JDK response headers to our format
             Map<String, List<String>> headers = new HashMap<>(jdkResponse.headers().map());
 
-            return new HttpResponse(jdkResponse.statusCode(), headers, jdkResponse.body());
+            // Decode gzip transparently. The check uses the JDK's case-insensitive header view; our
+            // own header map copy above is a plain HashMap and would be case-sensitive.
+            java.io.InputStream body = jdkResponse.body();
+            boolean gzip = jdkResponse.headers().firstValue("Content-Encoding")
+                    .filter(value -> value.equalsIgnoreCase("gzip")).isPresent();
+            if (gzip && body != null)
+            {
+                body = new GZIPInputStream(body);
+                // The body is now decoded, so headers describing the encoded form no longer apply.
+                // Remove them (case-insensitively) to keep the response — and any cache entry
+                // derived from it — honest.
+                headers.keySet().removeIf(name -> name.equalsIgnoreCase("Content-Encoding")
+                        || name.equalsIgnoreCase("Content-Length"));
+            }
+
+            return new HttpResponse(jdkResponse.statusCode(), headers, body);
         }
         catch (InterruptedException e)
         {
