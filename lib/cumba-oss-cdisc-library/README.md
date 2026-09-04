@@ -29,7 +29,8 @@ on top of `cumba-oss-web-api`.
 
 ## Notes
 
-The CDISC CORE rules engine loads rule packages through this client. For offline use, callers can also feed pre-downloaded rule JSON
+The coreJ rules engine (`cumba-oss-corej-core`) loads rule packages through
+this client. For offline use, callers can also feed pre-downloaded rule JSON
 directly to the engine without using the REST endpoint.
 
 See the root [README](../../README.md) for project-wide context.

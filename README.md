@@ -25,7 +25,7 @@ cumba-oss-commons     help · web-api · cdisc-library · bootstrap
       ▲
 cumba-oss-datatable   datatable · impl · cdisc-define · providers · manager-local
       ▲
-cumba-oss-formats     sas-utils · datasetjson            (independent leaf)
+cumba-oss-formats     sas-utils · cdisc-dsj              (independent leaf)
 ```
 
 Dependencies run in one direction only. Build order is
@@ -168,7 +168,11 @@ GitHub never looks at `.gitea/`.
 mvn -T1C clean install                            # full build, report-only checks
 mvn -T1C test                                     # all tests
 mvn -T1C verify -Dspotless.check=true             # CI: verify formatting without rewriting
-mvn -T1C verify -Dspotbugs.failOnError=true -Dpmd.failOnViolation=true   # CI: hard gate
+# ⛔ The CI gate, in full. These four flags ARE MAVEN_CI_GATES in
+#    .gitea/workflows/main.yml — drop any one and a local run stays green
+#    where CI goes red, because all four default to permissive.
+mvn -T1C verify -Dmaven.compiler.failOnWarning=true -Dspotless.check=true \
+    -Dpmd.failOnViolation=true -Dspotbugs.failOnError=true
 mvn -T1C -P Pitest verify                         # opt in to pitest, report-only
 mvn -T1C -P Pitest verify -Dpitest.failOnError=true  # CI: pitest + enforce mutation/coverage targets
 mvn -T1C verify -DskipPmd -DskipSpotbugs          # quick build, no static analysis (pitest already off)
