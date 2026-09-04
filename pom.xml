@@ -235,6 +235,21 @@
         <pitest.failOnError>false</pitest.failOnError>
 
         <!--
+            Pitest exclusion properties, consumed by <excludedTestClasses> /
+            <excludedClasses> in the Pitest profile below. Comma-separated, empty
+            here so they always resolve; modules override them.
+
+            ⚠ Without that wiring these do nothing at all. Measured 2026-09-03 in
+            the internal cumba-core-engine, where both were unwired: a module
+            reported line coverage 56% (1187/2102) and failed its gate, while the
+            same 1187 covered lines became 95% (1187/1253) once <excludedClasses>
+            was honoured — the untested CLIs the author had already excluded were
+            inflating the denominator.
+        -->
+        <pitest.excludedTestClasses/>
+        <pitest.excludedClasses/>
+
+        <!--
             Aggregate JaCoCo report consumed by Sonar. One aggregator now
             (`coverage/`), so one path — this used to be set per profile,
             pointing at coverage/dev or coverage/main.
@@ -601,6 +616,8 @@
                                     the gate into a silent no-op. See the "Pitest" step
                                     in `.gitea/workflows/main.yml`.
                                 -->
+                                <excludedTestClasses>${pitest.excludedTestClasses}</excludedTestClasses>
+                                <excludedClasses>${pitest.excludedClasses}</excludedClasses>
                                 <skipTests>false</skipTests>
                                 <!--
                                     Incremental analysis (history files) is enabled via
