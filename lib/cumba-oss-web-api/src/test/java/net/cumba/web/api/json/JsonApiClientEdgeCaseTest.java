@@ -10,8 +10,11 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import net.cumba.web.api.ApiException;
 import net.cumba.web.api.ApiResource;
 import net.cumba.web.api.http.HttpRequest;
@@ -95,6 +98,54 @@ class JsonApiClientEdgeCaseTest
             // Read again from cache
             JsonNode second = client.getRawJson("/data");
             assertEquals("value", second.get("key").asText());
+        }
+
+
+        /**
+         * A blank 2xx must not reach the cache. getRawJson throws on one, so a cached blank entry
+         * would make a single transient empty response a permanent failure - in later JVM runs too,
+         * since the cache is on disk and nothing evicts on content.
+         */
+        @Test
+        void blankSuccessBodyIsNotCached(@TempDir Path tempDir) throws IOException
+        {
+            CountingTransport transport = new CountingTransport(200, "");
+            JsonApiClient client = JsonApiClient.builder().transport(transport)
+                    .baseUrl("https://example.com").cacheDir(tempDir).build();
+
+            assertThrows(ApiException.class, () -> client.getRawJson("/blank"));
+            assertEquals(1, transport.callCount);
+
+            List<String> cacheFiles;
+            try (Stream<Path> files = Files.list(tempDir))
+            {
+                cacheFiles = files.map(f -> f.getFileName().toString()).sorted().toList();
+            }
+            assertEquals(List.of(), cacheFiles, "a blank 2xx must not leave a cache entry");
+
+            // Second call must reach the transport again rather than throw from cache.
+            assertThrows(ApiException.class, () -> client.getRawJson("/blank"));
+            assertEquals(2, transport.callCount);
+        }
+
+
+        /**
+         * The consequence that matters: once the server answers properly again, the client must see
+         * it. A cached blank entry would keep throwing instead.
+         */
+        @Test
+        void serverRecoveryAfterBlankResponseIsNotMaskedByCache(@TempDir Path tempDir)
+            throws IOException
+        {
+            BlankThenJsonTransport transport = new BlankThenJsonTransport();
+            JsonApiClient client = JsonApiClient.builder().transport(transport)
+                    .baseUrl("https://example.com").cacheDir(tempDir).build();
+
+            assertThrows(ApiException.class, () -> client.getRawJson("/flaky"));
+
+            JsonNode recovered = client.getRawJson("/flaky");
+            assertEquals(1, recovered.get("v").asInt());
+            assertEquals(2, transport.callCount);
         }
     }
 
@@ -196,6 +247,92 @@ class JsonApiClientEdgeCaseTest
         assertTrue(ex.isClientError());
     }
 
+    // --- F-cdisc-library-04: a 2xx with no JSON content must fail, not yield an
+    // empty resource ---
+
+
+    @Test
+    void getRawJsonThrowsOnZeroLengthBody()
+    {
+        JsonApiClient client = JsonApiClient.builder().transport(stubTransport(200, ""))
+                .baseUrl("https://api.example.com").build();
+
+        ApiException ex = assertThrows(ApiException.class, () -> client.getRawJson("/empty"));
+        assertEquals(200, ex.statusCode());
+        assertEquals("Server returned a blank response body", ex.responseBody());
+        assertTrue(ex.getMessage().contains("blank response body"), ex.getMessage());
+    }
+
+
+    @Test
+    void getPlainThrowsOnZeroLengthBodyInsteadOfEmptyResource()
+    {
+        JsonApiClient client = JsonApiClient.builder().transport(stubTransport(200, ""))
+                .baseUrl("https://api.example.com").build();
+
+        ApiException ex = assertThrows(ApiException.class, () -> client.get("/empty"));
+        assertEquals("Server returned a blank response body", ex.responseBody());
+    }
+
+
+    @Test
+    void getTypedThrowsOnZeroLengthBodyInsteadOfEmptyResource()
+    {
+        JsonApiClient client = JsonApiClient.builder().transport(stubTransport(200, ""))
+                .baseUrl("https://api.example.com").build();
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> client.get("/empty", ApiResource.class));
+        assertEquals("Server returned a blank response body", ex.responseBody());
+    }
+
+
+    @Test
+    void getRawJsonThrowsOnWhitespaceOnlyBody()
+    {
+        JsonApiClient client = JsonApiClient.builder().transport(stubTransport(200, " \n\t "))
+                .baseUrl("https://api.example.com").build();
+
+        ApiException ex = assertThrows(ApiException.class, () -> client.getRawJson("/blank"));
+        assertEquals("Server returned a blank response body", ex.responseBody());
+    }
+
+
+    /**
+     * The null-body and blank-body failures must stay diagnosable apart: same exception type and
+     * status, different message.
+     */
+    @Test
+    void nullBodyAndBlankBodyReportDistinctMessages()
+    {
+        JsonApiClient nullBodyClient = JsonApiClient.builder()
+                .transport(_ -> new HttpResponse(200, null, null))
+                .baseUrl("https://api.example.com").build();
+        JsonApiClient blankBodyClient = JsonApiClient.builder().transport(stubTransport(200, ""))
+                .baseUrl("https://api.example.com").build();
+
+        ApiException nullEx = assertThrows(ApiException.class,
+                () -> nullBodyClient.getRawJson("/null"));
+        ApiException blankEx = assertThrows(ApiException.class,
+                () -> blankBodyClient.getRawJson("/blank"));
+
+        assertEquals("Server returned empty response body", nullEx.responseBody());
+        assertEquals("Server returned a blank response body", blankEx.responseBody());
+        assertTrue(!nullEx.getMessage().equals(blankEx.getMessage()), "messages must differ");
+    }
+
+
+    @Test
+    void nonBlankBodyStillParses() throws IOException
+    {
+        JsonApiClient client = JsonApiClient.builder().transport(stubTransport(200, "{}"))
+                .baseUrl("https://api.example.com").build();
+
+        JsonNode node = client.getRawJson("/ok");
+        assertNotNull(node);
+        assertTrue(node.isObject());
+    }
+
     // --- Helpers ---
 
 
@@ -252,6 +389,26 @@ class JsonApiClientEdgeCaseTest
         {
             callCount++;
             return new HttpResponse(statusCode, null,
+                    new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
+        }
+    }
+
+
+    /**
+     * Answers the first call with a blank 2xx body and every later call with real JSON - the
+     * transient-blank-response scenario the cache must not make permanent.
+     */
+    private static class BlankThenJsonTransport implements HttpTransport
+    {
+
+        int callCount = 0;
+
+        @Override
+        public HttpResponse send(HttpRequest request)
+        {
+            callCount++;
+            String body = callCount == 1 ? "" : "{\"v\":1}";
+            return new HttpResponse(200, null,
                     new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
         }
     }

@@ -151,8 +151,21 @@ public abstract class AbstractApiClient
                     : null;
         }
 
-        // Cache successful responses when allowed
-        if (aCacheable && statusCode >= 200 && statusCode < 300 && body != null)
+        // Cache successful responses when allowed. A blank body - zero-length or
+        // whitespace only - is deliberately NOT cached. It carries no content in any
+        // format this class serves, and JsonApiClient.getRawJson now throws
+        // "Server returned a blank response body" on exactly such a 2xx (Jackson
+        // parses it to MissingNode). Cache it and one transient blank response becomes
+        // a permanent failure: every later call, in this and in later JVM runs, is
+        // served the blank entry and throws, and the server recovering does not help -
+        // nothing evicts on content, so it stands until the TTL expires (forever when
+        // no CacheValidator is configured, which is the default). isBlank() rather
+        // than isEmpty() because a whitespace-only body is just as contentless, and is
+        // rejected by that same guard; a plain string test also keeps this
+        // format-agnostic class free of JSON semantics - XmlApiClient gets nothing
+        // usable out of a whitespace-only body either. Do not "simplify" this back to
+        // body != null.
+        if (aCacheable && statusCode >= 200 && statusCode < 300 && body != null && !body.isBlank())
         {
             cache.put(aRequest, new CacheEntry(statusCode, responseHeaders, body));
         }

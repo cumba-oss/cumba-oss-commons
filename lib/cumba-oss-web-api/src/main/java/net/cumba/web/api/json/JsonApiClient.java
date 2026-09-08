@@ -94,12 +94,27 @@ public class JsonApiClient extends AbstractApiClient
                 String body = readBodySafe(response);
                 throw new ApiException(response.statusCode(), body);
             }
-            if (response.body() == null)
+            // Read body() ONCE into a local: null-checking one call and dereferencing
+            // a second is what SpotBugs 4.10 flags as
+            // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE.
+            InputStream body = response.body();
+            if (body == null)
             {
                 throw new ApiException(response.statusCode(),
                         "Server returned empty response body");
             }
-            return objectMapper.readTree(response.body());
+            // A 2xx whose body carries no JSON at all - zero bytes, or nothing but
+            // whitespace - parses to MissingNode rather than failing, and every
+            // accessor on the resulting resource then returns empty with no
+            // exception. Fail here instead, symmetrically with the null body above
+            // and with a distinct message so the two are diagnosable apart.
+            JsonNode node = objectMapper.readTree(body);
+            if (node == null || node.isMissingNode())
+            {
+                throw new ApiException(response.statusCode(),
+                        "Server returned a blank response body");
+            }
+            return node;
         }
     }
 
