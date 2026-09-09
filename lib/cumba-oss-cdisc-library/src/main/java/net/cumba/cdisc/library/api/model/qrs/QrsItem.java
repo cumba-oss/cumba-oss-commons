@@ -1,7 +1,6 @@
 package net.cumba.cdisc.library.api.model.qrs;
 
 import java.util.Optional;
-import java.util.OptionalInt;
 
 import net.cumba.web.api.ApiResource;
 import net.cumba.web.api.Link;
@@ -22,9 +21,9 @@ public interface QrsItem extends ApiResource
      *
      * @return the ordinal position of this item within the instrument.
      */
-    default OptionalInt ordinal()
+    default Optional<String> ordinal()
     {
-        return getInt("ordinal");
+        return getString("ordinal");
     }
 
 

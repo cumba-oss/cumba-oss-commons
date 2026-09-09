@@ -1,5 +1,6 @@
 package net.cumba.web.api.cache;
 
+import static net.cumba.web.api.cache.CacheBytes.bytes;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -14,7 +15,7 @@ class TtlCacheValidatorTest
     private static final HttpRequest DUMMY_REQUEST = HttpRequest
             .get(URI.create("https://example.com/any/path")).build();
 
-    private static final CacheEntry DUMMY_ENTRY = new CacheEntry("content");
+    private static final CacheEntry DUMMY_ENTRY = new CacheEntry(bytes("content"));
 
     /**
      * Fixed clock ({@code Fix #260}): the time-sensitive cases below derive timestamps from the
@@ -95,7 +96,7 @@ class TtlCacheValidatorTest
     {
         TtlCacheValidator validator = fixedClockValidator(1000L);
         assertTrue(validator.isValid(DUMMY_REQUEST, DUMMY_ENTRY, NOW));
-        assertTrue(validator.isValid(DUMMY_REQUEST, new CacheEntry("other"), NOW));
+        assertTrue(validator.isValid(DUMMY_REQUEST, new CacheEntry(bytes("other")), NOW));
         assertTrue(
                 validator.isValid(HttpRequest.get(URI.create("https://example.com/b/c/d")).build(),
                         DUMMY_ENTRY, NOW));

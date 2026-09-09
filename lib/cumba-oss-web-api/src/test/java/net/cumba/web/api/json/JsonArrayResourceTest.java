@@ -150,20 +150,37 @@ class JsonArrayResourceTest
 
 
         @Test
-        void isIntReturnsTrueForDoubleElement()
+        void isIntReturnsFalseForDoubleElement()
         {
+            // F-webapi-03 ruling (2026-09-08): "isInt should return false if it is not
+            // really an int." This deliberately reverses the earlier broad is-numeric
+            // contract that pinned isInt(3.14) == true.
             ArrayNode arr = mapper.createArrayNode();
             arr.add(3.14);
-            assertTrue(JsonArrayResource.of(arr).isInt(0));
+            assertFalse(JsonArrayResource.of(arr).isInt(0));
         }
 
 
         @Test
-        void isIntReturnsTrueForLongElement()
+        void isIntReturnsFalseForLongBeyondIntRange()
         {
+            // 9_999_999_999 does not fit an int; it is a long, and only isLong may
+            // accept it (F-webapi-03).
             ArrayNode arr = mapper.createArrayNode();
             arr.add(9_999_999_999L);
+            assertFalse(JsonArrayResource.of(arr).isInt(0));
+            assertTrue(JsonArrayResource.of(arr).isLong(0));
+        }
+
+
+        @Test
+        void isIntReturnsTrueForIntBoundaries()
+        {
+            ArrayNode arr = mapper.createArrayNode();
+            arr.add(Integer.MAX_VALUE);
+            arr.add(Integer.MIN_VALUE);
             assertTrue(JsonArrayResource.of(arr).isInt(0));
+            assertTrue(JsonArrayResource.of(arr).isInt(1));
         }
 
 
@@ -194,11 +211,24 @@ class JsonArrayResourceTest
 
 
         @Test
-        void getIntReturnsValueForDouble()
+        void getIntReturnsEmptyForDouble()
         {
+            // F-webapi-03: getInt must not silently truncate 3.7 to 3 — a double is
+            // not an int, so the accessor answers empty, consistently with isInt.
             ArrayNode arr = mapper.createArrayNode();
             arr.add(3.7);
-            assertEquals(3, JsonArrayResource.of(arr).getInt(0).orElse(-1));
+            assertTrue(JsonArrayResource.of(arr).getInt(0).isEmpty());
+        }
+
+
+        @Test
+        void getIntReturnsEmptyForLongBeyondIntRange()
+        {
+            // F-webapi-03: getInt must not narrow 2147483648 to -2147483648.
+            ArrayNode arr = mapper.createArrayNode();
+            arr.add(2_147_483_648L);
+            assertTrue(JsonArrayResource.of(arr).getInt(0).isEmpty());
+            assertEquals(2_147_483_648L, JsonArrayResource.of(arr).getLong(0).orElse(-1));
         }
 
 
@@ -706,7 +736,7 @@ class JsonArrayResourceTest
         assertFalse(r.isString(1));
 
         assertTrue(r.isInt(1));
-        assertTrue(r.isInt(2)); // isNumber, so double also matches
+        assertFalse(r.isInt(2)); // F-webapi-03: a double is not an int
 
         assertTrue(r.isBoolean(3));
         assertFalse(r.isBoolean(0));

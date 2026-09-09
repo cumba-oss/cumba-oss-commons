@@ -14,6 +14,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 
 import net.cumba.web.api.http.HttpRequest;
+import net.cumba.web.api.http.HttpResponse;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -29,7 +30,7 @@ import org.jspecify.annotations.Nullable;
  * </p>
  *
  * <p>
- * Path-based methods ({@link #read(String)}, {@link #write(String, String)},
+ * Path-based methods ({@link #read(String)}, {@link #write(String, byte[])},
  * {@link #invalidate(String)}) are retained as the low-level storage API that file-based
  * implementations build on.
  * </p>
@@ -108,6 +109,45 @@ public interface ApiCache
             }
         }
         return entry;
+    }
+
+
+    /**
+     * Serves a cached response <b>without materialising its body</b>, as an {@link HttpResponse}
+     * whose {@link HttpResponse#body() body} is a live stream over the cache's own storage.
+     *
+     * <p>
+     * This is the low-memory counterpart of {@link #get(HttpRequest)}. {@code get} has to read the
+     * whole body into a {@link CacheEntry}, a full-size copy of data that is already on disk in
+     * exactly the form the parser wants. For a multi-megabyte CDISC Library response that copy is
+     * pure garbage. Streaming skips it.
+     * </p>
+     *
+     * <p>
+     * <b>The returned response owns an open resource.</b> Unlike the buffered response
+     * {@code get(...)} yields, closing it is not optional: it holds a file handle until
+     * {@link HttpResponse#close()} runs. Callers must use try-with-resources.
+     * </p>
+     *
+     * <p>
+     * Returning {@link Optional#empty()} is always allowed and always safe — it means "no streaming
+     * answer available, ask {@link #get(HttpRequest)}". Implementations return empty for a cache
+     * miss, and must also return empty when a configured {@link CacheValidator}
+     * {@linkplain CacheValidator#needsContent() needs the entry content}, since a streaming read
+     * cannot supply it. The default implementation always returns empty, so every existing
+     * {@code ApiCache} keeps working unchanged.
+     * </p>
+     *
+     * @param aRequest
+     *            the HTTP request to look up.
+     * @return a response streaming the cached body, or empty when this cache cannot serve the
+     *         request that way.
+     * @throws IOException
+     *             in case of an I/O error reading the cache.
+     */
+    default Optional<HttpResponse> openStream(HttpRequest aRequest) throws IOException
+    {
+        return Optional.empty();
     }
 
 
@@ -358,7 +398,13 @@ public interface ApiCache
 
 
     /**
-     * Reads cached content for the given endpoint path.
+     * Reads cached content for the given endpoint path, as the raw bytes that were stored.
+     *
+     * <p>
+     * The bytes are returned undecoded — see {@link CacheEntry} for why this API deals in
+     * {@code byte[]} rather than {@code String}, and for how to decode them safely when characters
+     * are what you actually want.
+     * </p>
      *
      * @param aPath
      *            the normalized endpoint path (e.g., "/mdr/adam/adam-2-1").
@@ -366,18 +412,23 @@ public interface ApiCache
      * @throws IOException
      *             in case of an I/O error reading the cache.
      */
-    Optional<String> read(String aPath) throws IOException;
+    Optional<byte[]> read(String aPath) throws IOException;
 
 
     /**
-     * Writes content to the cache.
+     * Writes content to the cache, byte for byte.
+     *
+     * <p>
+     * Implementations must store and return exactly these bytes: a body is not text as far as this
+     * API is concerned, and no charset is applied on the way in or out.
+     * </p>
      *
      * @param aPath
      *            the normalized endpoint path.
      * @param aContent
-     *            the content to cache.
+     *            the content to cache, as raw bytes.
      */
-    void write(String aPath, String aContent);
+    void write(String aPath, byte[] aContent);
 
 
     /**
@@ -435,7 +486,7 @@ public interface ApiCache
      * Writes a {@link CacheEntry} (body content plus HTTP metadata) to the cache.
      *
      * <p>
-     * The default implementation delegates to {@link #write(String, String)}, discarding the
+     * The default implementation delegates to {@link #write(String, byte[])}, discarding the
      * metadata. Implementations that support metadata storage should override this method.
      * </p>
      *

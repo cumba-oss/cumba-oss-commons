@@ -1,5 +1,7 @@
 package net.cumba.web.api.cache;
 
+import static net.cumba.web.api.cache.CacheBytes.bytes;
+import static net.cumba.web.api.cache.CacheBytes.text;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -73,17 +75,17 @@ class ApiCacheKeyQueryTest
     private static final class InMemoryApiCache implements ApiCache
     {
 
-        private final Map<String, String> entries = new HashMap<>();
+        private final Map<String, byte[]> entries = new HashMap<>();
 
         @Override
-        public Optional<String> read(String aPath)
+        public Optional<byte[]> read(String aPath)
         {
             return Optional.ofNullable(entries.get(aPath));
         }
 
 
         @Override
-        public void write(String aPath, String aContent)
+        public void write(String aPath, byte[] aContent)
         {
             entries.put(aPath, aContent);
         }
@@ -230,12 +232,13 @@ class ApiCacheKeyQueryTest
         void writeUnderOneQueryIsNotReadableUnderAnother(@TempDir Path aTempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(aTempDir, ".json");
-            cache.put(requestFor("/mdr/search?q=a"), new CacheEntry("alpha"));
+            cache.put(requestFor("/mdr/search?q=a"), new CacheEntry(bytes("alpha")));
 
             Optional<CacheEntry> other = cache.get(requestFor("/mdr/search?q=b"));
             assertTrue(other.isEmpty(),
                     "a different query must not hit the entry written for ?q=a");
-            assertEquals("alpha", cache.get(requestFor("/mdr/search?q=a")).orElseThrow().content());
+            assertEquals("alpha",
+                    text(cache.get(requestFor("/mdr/search?q=a")).orElseThrow().content()));
         }
     }
 
@@ -254,11 +257,11 @@ class ApiCacheKeyQueryTest
         {
             FileApiCache cache = new FileApiCache(aTempDir, ".json");
             // Written the way the live cache at /data/cdisc.metadata.library-cache holds it
-            cache.write("/api/mdr/adam/adam-2-1", "legacy-body");
+            cache.write("/api/mdr/adam/adam-2-1", bytes("legacy-body"));
 
             Optional<CacheEntry> hit = cache.get(requestFor("/api/mdr/adam/adam-2-1?expand=true"));
             assertTrue(hit.isPresent(), "a path-only entry must remain reachable");
-            assertEquals("legacy-body", hit.get().content());
+            assertEquals("legacy-body", text(hit.get().content()));
         }
 
 
@@ -266,11 +269,13 @@ class ApiCacheKeyQueryTest
         void newWriteIsNotReadableUnderTheLegacyKey(@TempDir Path aTempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(aTempDir, ".json");
-            cache.put(requestFor("/api/mdr/adam/adam-2-1?expand=true"), new CacheEntry("fresh"));
+            cache.put(requestFor("/api/mdr/adam/adam-2-1?expand=true"),
+                    new CacheEntry(bytes("fresh")));
 
             assertTrue(cache.read("/api/mdr/adam/adam-2-1").isEmpty(),
                     "writes must not extend the legacy key set");
-            assertEquals("fresh", cache.read("/api/mdr/adam/adam-2-1?expand=true").orElseThrow());
+            assertEquals("fresh",
+                    text(cache.read("/api/mdr/adam/adam-2-1?expand=true").orElseThrow()));
         }
 
 
@@ -278,11 +283,12 @@ class ApiCacheKeyQueryTest
         void freshEntryWinsOverTheLegacyOne(@TempDir Path aTempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(aTempDir, ".json");
-            cache.write("/api/mdr/adam/adam-2-1", "legacy-body");
-            cache.put(requestFor("/api/mdr/adam/adam-2-1?expand=true"), new CacheEntry("fresh"));
+            cache.write("/api/mdr/adam/adam-2-1", bytes("legacy-body"));
+            cache.put(requestFor("/api/mdr/adam/adam-2-1?expand=true"),
+                    new CacheEntry(bytes("fresh")));
 
-            assertEquals("fresh", cache.get(requestFor("/api/mdr/adam/adam-2-1?expand=true"))
-                    .orElseThrow().content());
+            assertEquals("fresh", text(cache.get(requestFor("/api/mdr/adam/adam-2-1?expand=true"))
+                    .orElseThrow().content()));
         }
 
 
@@ -290,7 +296,7 @@ class ApiCacheKeyQueryTest
         void invalidateAlsoDropsTheLegacyEntry(@TempDir Path aTempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(aTempDir, ".json");
-            cache.write("/api/mdr/adam/adam-2-1", "legacy-body");
+            cache.write("/api/mdr/adam/adam-2-1", bytes("legacy-body"));
 
             assertTrue(cache.invalidate(requestFor("/api/mdr/adam/adam-2-1?expand=true")));
             assertTrue(cache.read("/api/mdr/adam/adam-2-1").isEmpty(),
@@ -304,10 +310,11 @@ class ApiCacheKeyQueryTest
         void defaultImplementationFallsBackToTheLegacyKey() throws IOException
         {
             InMemoryApiCache cache = new InMemoryApiCache();
-            cache.write("/api/mdr/adam/adam-2-1", "legacy-body");
+            cache.write("/api/mdr/adam/adam-2-1", bytes("legacy-body"));
 
-            assertEquals("legacy-body", cache.get(requestFor("/api/mdr/adam/adam-2-1?expand=true"))
-                    .orElseThrow().content());
+            assertEquals("legacy-body",
+                    text(cache.get(requestFor("/api/mdr/adam/adam-2-1?expand=true")).orElseThrow()
+                            .content()));
         }
 
 
@@ -315,12 +322,13 @@ class ApiCacheKeyQueryTest
         void defaultImplementationPrefersTheCurrentKey() throws IOException
         {
             InMemoryApiCache cache = new InMemoryApiCache();
-            cache.write("/api/mdr/adam/adam-2-1", "legacy-body");
-            cache.put(requestFor("/api/mdr/adam/adam-2-1?expand=true"), new CacheEntry("fresh"));
+            cache.write("/api/mdr/adam/adam-2-1", bytes("legacy-body"));
+            cache.put(requestFor("/api/mdr/adam/adam-2-1?expand=true"),
+                    new CacheEntry(bytes("fresh")));
 
-            assertEquals("fresh", cache.get(requestFor("/api/mdr/adam/adam-2-1?expand=true"))
-                    .orElseThrow().content());
-            assertEquals("legacy-body", cache.read("/api/mdr/adam/adam-2-1").orElseThrow());
+            assertEquals("fresh", text(cache.get(requestFor("/api/mdr/adam/adam-2-1?expand=true"))
+                    .orElseThrow().content()));
+            assertEquals("legacy-body", text(cache.read("/api/mdr/adam/adam-2-1").orElseThrow()));
         }
 
 
@@ -328,8 +336,9 @@ class ApiCacheKeyQueryTest
         void defaultImplementationInvalidatesBothKeys() throws IOException
         {
             InMemoryApiCache cache = new InMemoryApiCache();
-            cache.write("/api/mdr/adam/adam-2-1", "legacy-body");
-            cache.put(requestFor("/api/mdr/adam/adam-2-1?expand=true"), new CacheEntry("fresh"));
+            cache.write("/api/mdr/adam/adam-2-1", bytes("legacy-body"));
+            cache.put(requestFor("/api/mdr/adam/adam-2-1?expand=true"),
+                    new CacheEntry(bytes("fresh")));
 
             assertTrue(cache.invalidate(requestFor("/api/mdr/adam/adam-2-1?expand=true")));
             assertTrue(cache.read("/api/mdr/adam/adam-2-1").isEmpty());
@@ -350,10 +359,10 @@ class ApiCacheKeyQueryTest
             throws IOException
         {
             FileApiCache cache = new FileApiCache(aTempDir, ".json");
-            cache.put(requestFor("/mdr/products"), new CacheEntry("not-expanded"));
+            cache.put(requestFor("/mdr/products"), new CacheEntry(bytes("not-expanded")));
 
-            assertEquals("not-expanded",
-                    cache.get(requestFor("/mdr/products?expand=true")).orElseThrow().content());
+            assertEquals("not-expanded", text(
+                    cache.get(requestFor("/mdr/products?expand=true")).orElseThrow().content()));
         }
 
 
@@ -474,9 +483,9 @@ class ApiCacheKeyQueryTest
         {
             FileApiCache cache = new FileApiCache(aTempDir, ".json");
             HttpRequest request = requestFor("/mdr/search?q=" + "z".repeat(MAX));
-            cache.put(request, new CacheEntry("body"));
+            cache.put(request, new CacheEntry(bytes("body")));
 
-            assertEquals("body", cache.get(request).orElseThrow().content());
+            assertEquals("body", text(cache.get(request).orElseThrow().content()));
             assertFalse(cache.get(requestFor("/mdr/search?q=" + "y".repeat(MAX))).isPresent());
         }
     }

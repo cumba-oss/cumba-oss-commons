@@ -2,7 +2,6 @@ package net.cumba.cdisc.library.api.model.cdash;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 
 import net.cumba.web.api.ApiResource;
 import net.cumba.web.api.Link;
@@ -24,9 +23,9 @@ public interface CdashScenario extends ApiResource
      *
      * @return the ordinal position of this scenario.
      */
-    default OptionalInt ordinal()
+    default Optional<String> ordinal()
     {
-        return getInt("ordinal");
+        return getString("ordinal");
     }
 
 

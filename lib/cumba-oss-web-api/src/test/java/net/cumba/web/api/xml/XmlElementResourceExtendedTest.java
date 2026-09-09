@@ -123,12 +123,13 @@ class XmlElementResourceExtendedTest
         @Test
         void getIntReturnsEmptyForOverflow() throws Exception
         {
-            // 99999999999 overflows int but fits in long → tryParseLong succeeds,
-            // longVal.intValue() truncates to a (different) int
+            // 99999999999 overflows int but fits in long. F-webapi-03: getInt must
+            // answer empty instead of narrowing to a different int (the old assertion
+            // pinned the truncation, contradicting this test's own name).
             Element elem = parseXml("<Item N=\"99999999999\"/>");
             XmlElementResource res = new XmlElementResource(elem);
-            // Truncation behaviour — assertion on presence only
-            assertTrue(res.getInt("N").isPresent());
+            assertTrue(res.getInt("N").isEmpty());
+            assertEquals(99_999_999_999L, res.getLong("N").orElseThrow());
         }
 
 

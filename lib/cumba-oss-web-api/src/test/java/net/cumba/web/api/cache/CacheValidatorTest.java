@@ -1,5 +1,6 @@
 package net.cumba.web.api.cache;
 
+import static net.cumba.web.api.cache.CacheBytes.bytes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -17,7 +18,7 @@ class CacheValidatorTest
     {
         CacheValidator validator = (request, _, _) -> request.uri().getPath().startsWith("/stable");
 
-        CacheEntry entry = new CacheEntry("content");
+        CacheEntry entry = new CacheEntry(bytes("content"));
 
         assertTrue(validator.isValid(
                 HttpRequest.get(URI.create("https://example.com/stable/data")).build(), entry,
@@ -33,7 +34,7 @@ class CacheValidatorTest
     {
         CacheValidator validator = CacheValidatorTest::alwaysValid;
         assertTrue(validator.isValid(HttpRequest.get(URI.create("https://example.com/any")).build(),
-                new CacheEntry("content"), 0L));
+                new CacheEntry(bytes("content")), 0L));
     }
 
 
@@ -53,7 +54,7 @@ class CacheValidatorTest
         };
 
         HttpRequest request = HttpRequest.get(URI.create("https://example.com/test/path")).build();
-        CacheEntry entry = new CacheEntry(200, java.util.Map.of(), "body");
+        CacheEntry entry = new CacheEntry(200, java.util.Map.of(), bytes("body"));
 
         assertTrue(validator.isValid(request, entry, 42L));
         assertSame(request, capturedRequest[0]);

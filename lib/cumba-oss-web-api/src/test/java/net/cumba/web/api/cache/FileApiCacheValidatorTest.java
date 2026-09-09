@@ -1,5 +1,7 @@
 package net.cumba.web.api.cache;
 
+import static net.cumba.web.api.cache.CacheBytes.bytes;
+import static net.cumba.web.api.cache.CacheBytes.text;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -24,11 +26,11 @@ class FileApiCacheValidatorTest
         void readReturnsCachedContent(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            cache.write("/data", "content");
+            cache.write("/data", bytes("content"));
 
-            Optional<String> result = cache.read("/data");
+            Optional<byte[]> result = cache.read("/data");
             assertTrue(result.isPresent());
-            assertEquals("content", result.get());
+            assertEquals("content", text(result.get()));
         }
 
 
@@ -36,7 +38,7 @@ class FileApiCacheValidatorTest
         void nullValidatorAllowsAllEntries(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json", null);
-            cache.write("/data", "content");
+            cache.write("/data", bytes("content"));
 
             assertTrue(cache.read("/data").isPresent());
         }
@@ -53,11 +55,11 @@ class FileApiCacheValidatorTest
             // 1 hour TTL — freshly written entry should be valid
             FileApiCache cache = new FileApiCache(tempDir, ".json",
                     new TtlCacheValidator(3_600_000L));
-            cache.write("/data", "fresh");
+            cache.write("/data", bytes("fresh"));
 
-            Optional<String> result = cache.read("/data");
+            Optional<byte[]> result = cache.read("/data");
             assertTrue(result.isPresent());
-            assertEquals("fresh", result.get());
+            assertEquals("fresh", text(result.get()));
         }
 
 
@@ -69,10 +71,10 @@ class FileApiCacheValidatorTest
             // depending on wall-clock TTL expiry.
             AtomicBoolean valid = new AtomicBoolean(true);
             FileApiCache cache = new FileApiCache(tempDir, ".json", (_, _, _) -> valid.get());
-            cache.write("/data", "old");
+            cache.write("/data", bytes("old"));
             valid.set(false);
 
-            Optional<String> result = cache.read("/data");
+            Optional<byte[]> result = cache.read("/data");
             assertFalse(result.isPresent());
         }
 
@@ -82,7 +84,7 @@ class FileApiCacheValidatorTest
         {
             AtomicBoolean valid = new AtomicBoolean(true);
             FileApiCache cache = new FileApiCache(tempDir, ".json", (_, _, _) -> valid.get());
-            cache.write("/data", "old");
+            cache.write("/data", bytes("old"));
             valid.set(false);
 
             // read() invalidates the expired entry
@@ -104,7 +106,7 @@ class FileApiCacheValidatorTest
         {
             CacheValidator rejectAll = (_, _, _) -> false;
             FileApiCache cache = new FileApiCache(tempDir, ".json", rejectAll);
-            cache.write("/data", "content");
+            cache.write("/data", bytes("content"));
 
             assertFalse(cache.read("/data").isPresent());
         }
@@ -115,11 +117,11 @@ class FileApiCacheValidatorTest
         {
             CacheValidator acceptAll = (_, _, _) -> true;
             FileApiCache cache = new FileApiCache(tempDir, ".json", acceptAll);
-            cache.write("/data", "content");
+            cache.write("/data", bytes("content"));
 
-            Optional<String> result = cache.read("/data");
+            Optional<byte[]> result = cache.read("/data");
             assertTrue(result.isPresent());
-            assertEquals("content", result.get());
+            assertEquals("content", text(result.get()));
         }
 
 
@@ -134,10 +136,10 @@ class FileApiCacheValidatorTest
             };
 
             FileApiCache cache = new FileApiCache(tempDir, ".json", capturing);
-            cache.write("/mdr/adam/adam-2-1", "data");
+            cache.write("/mdr/adam/adam-2-1", bytes("data"));
             cache.read("/mdr/adam/adam-2-1");
 
-            assertEquals("data", capturedEntry[0].content());
+            assertEquals("data", text(capturedEntry[0].content()));
         }
 
 
@@ -153,7 +155,7 @@ class FileApiCacheValidatorTest
 
             FileApiCache cache = new FileApiCache(tempDir, ".json", capturing);
             long beforeWrite = System.currentTimeMillis();
-            cache.write("/data", "content");
+            cache.write("/data", bytes("content"));
             long afterWrite = System.currentTimeMillis();
 
             cache.read("/data");
@@ -167,11 +169,12 @@ class FileApiCacheValidatorTest
         @Test
         void entryContentBasedValidation(@TempDir Path tempDir) throws IOException
         {
-            CacheValidator contentBased = (_, entry, _) -> !entry.content().contains("expired");
+            CacheValidator contentBased = (_, entry,
+                    _) -> !text(entry.content()).contains("expired");
 
             FileApiCache cache = new FileApiCache(tempDir, ".json", contentBased);
-            cache.write("/stable", "valid data");
-            cache.write("/volatile", "expired data");
+            cache.write("/stable", bytes("valid data"));
+            cache.write("/volatile", bytes("expired data"));
 
             assertTrue(cache.read("/stable").isPresent());
             assertFalse(cache.read("/volatile").isPresent());
@@ -188,7 +191,7 @@ class FileApiCacheValidatorTest
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
             long before = System.currentTimeMillis();
-            cache.write("/data", "content");
+            cache.write("/data", bytes("content"));
             long after = System.currentTimeMillis();
 
             OptionalLong timestamp = cache.cacheTimestamp("/data");
@@ -218,7 +221,7 @@ class FileApiCacheValidatorTest
         {
             CacheValidator rejectAll = (_, _, _) -> false;
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json", rejectAll);
-            cache.write("/data", "compressed content");
+            cache.write("/data", bytes("compressed content"));
 
             assertFalse(cache.read("/data").isPresent());
         }
@@ -229,11 +232,11 @@ class FileApiCacheValidatorTest
         {
             CacheValidator acceptAll = (_, _, _) -> true;
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json", acceptAll);
-            cache.write("/data", "compressed content");
+            cache.write("/data", bytes("compressed content"));
 
-            Optional<String> result = cache.read("/data");
+            Optional<byte[]> result = cache.read("/data");
             assertTrue(result.isPresent());
-            assertEquals("compressed content", result.get());
+            assertEquals("compressed content", text(result.get()));
         }
 
 
@@ -241,7 +244,7 @@ class FileApiCacheValidatorTest
         void gzipCacheWithoutValidatorServesAll(@TempDir Path tempDir) throws IOException
         {
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
-            cache.write("/data", "content");
+            cache.write("/data", bytes("content"));
 
             assertTrue(cache.read("/data").isPresent());
         }
@@ -251,7 +254,7 @@ class FileApiCacheValidatorTest
         void gzipCacheTimestampWorks(@TempDir Path tempDir) throws IOException
         {
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
-            cache.write("/data", "content");
+            cache.write("/data", bytes("content"));
 
             OptionalLong timestamp = cache.cacheTimestamp("/data");
             assertTrue(timestamp.isPresent());

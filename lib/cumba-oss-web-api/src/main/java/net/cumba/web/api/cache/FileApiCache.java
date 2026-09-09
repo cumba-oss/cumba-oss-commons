@@ -3,6 +3,7 @@ package net.cumba.web.api.cache;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -15,6 +16,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import lombok.NonNull;
 import net.cumba.web.api.http.HttpRequest;
+import net.cumba.web.api.http.HttpResponse;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -35,6 +37,13 @@ import org.jspecify.annotations.Nullable;
  */
 public class FileApiCache implements ApiCache
 {
+
+    /**
+     * The body handed to a validator on the streaming path, where by contract the validator has
+     * declared it does not inspect the content. Zero-length, so it is immutable in practice and
+     * safe to share.
+     */
+    private static final byte[] NO_CONTENT = new byte[0];
 
     private static final ObjectMapper META_MAPPER = new ObjectMapper();
 
@@ -133,7 +142,7 @@ public class FileApiCache implements ApiCache
         }
 
         // Read body and metadata first so the validator can inspect the entry
-        Optional<String> content = readCacheFile(cacheFile);
+        Optional<byte[]> content = readCacheFile(cacheFile);
         if (content.isEmpty())
         {
             return Optional.empty();
@@ -155,11 +164,104 @@ public class FileApiCache implements ApiCache
         return Optional.of(entry);
     }
 
+
+    @Override
+    public Optional<HttpResponse> openStream(HttpRequest aRequest) throws IOException
+    {
+        // A content-inspecting validator cannot be answered from a stream: it wants the whole
+        // body in memory, which is exactly the materialisation this path exists to avoid. Let
+        // the caller fall back to get(HttpRequest). Deciding it HERE rather than in the caller is
+        // deliberate - this class owns the validator, and a caller holding a custom ApiCache has
+        // no way to see it.
+        CacheValidator configured = validator;
+        if (configured != null && configured.needsContent())
+        {
+            return Optional.empty();
+        }
+        String cacheKey = toCacheKey(aRequest);
+        Optional<HttpResponse> streamed = openStream(aRequest, cacheKey);
+        if (streamed.isEmpty())
+        {
+            String legacyKey = toLegacyCacheKey(aRequest);
+            if (!legacyKey.equals(cacheKey))
+            {
+                streamed = openStream(aRequest, legacyKey);
+            }
+        }
+        return streamed;
+    }
+
+
+    /**
+     * Opens one specific cache key as a stream on behalf of {@link #openStream(HttpRequest)}.
+     *
+     * <p>
+     * The entry is still validated - a non-content validator is consulted exactly as
+     * {@link #get(HttpRequest)} consults it, and an entry it rejects is invalidated here too, so
+     * the streaming path cannot silently outlive a TTL. The {@link CacheEntry} handed to the
+     * validator carries the real status code and headers from the {@code .meta} sidecar and an
+     * empty content array, which is sound precisely because {@link CacheValidator#needsContent()}
+     * said the content is not consulted.
+     * </p>
+     *
+     * @param aRequest
+     *            the HTTP request being served.
+     * @param aCacheKey
+     *            the cache key to look up.
+     * @return a streaming response, or empty if the entry is absent or was invalidated.
+     * @throws IOException
+     *             in case of an I/O error reading the cache.
+     */
+    private Optional<HttpResponse> openStream(HttpRequest aRequest, String aCacheKey)
+        throws IOException
+    {
+        Path cacheFile = cacheDir.resolve(toCacheFileName(aCacheKey));
+        if (!Files.exists(cacheFile))
+        {
+            return Optional.empty();
+        }
+
+        CacheMeta meta = readMeta(cacheFile);
+
+        CacheValidator configured = validator;
+        if (configured != null)
+        {
+            long timestamp = Files.getLastModifiedTime(cacheFile).toMillis();
+            CacheEntry probe = new CacheEntry(meta.statusCode(), meta.headers(), NO_CONTENT);
+            if (!configured.isValid(aRequest, probe, timestamp))
+            {
+                invalidate(aCacheKey);
+                return Optional.empty();
+            }
+        }
+
+        return Optional.of(new HttpResponse(meta.statusCode(), meta.headers(),
+                openCacheFileStream(cacheFile)));
+    }
+
+
+    /**
+     * Opens a cache file as a stream of its <b>decoded</b> bytes - the same bytes
+     * {@link #readCacheFile(Path)} would have turned into a String. Subclasses that transform the
+     * stored form (compression, encryption) must override this as well as
+     * {@link #readCacheFile(Path)}, or the streaming path would serve the raw stored bytes.
+     *
+     * @param aCacheFile
+     *            the cache file path.
+     * @return an open stream over the file's decoded content; the caller closes it.
+     * @throws IOException
+     *             in case of an I/O error.
+     */
+    protected InputStream openCacheFileStream(Path aCacheFile) throws IOException
+    {
+        return Files.newInputStream(aCacheFile);
+    }
+
     // --- Path-based API ---
 
 
     @Override
-    public Optional<String> read(String aPath) throws IOException
+    public Optional<byte[]> read(String aPath) throws IOException
     {
         Path cacheFile = cacheDir.resolve(toCacheFileName(aPath));
         if (Files.exists(cacheFile))
@@ -168,7 +270,7 @@ public class FileApiCache implements ApiCache
             {
                 long timestamp = Files.getLastModifiedTime(cacheFile).toMillis();
                 // Path-based read: construct a minimal entry for validation
-                Optional<String> content = readCacheFile(cacheFile);
+                Optional<byte[]> content = readCacheFile(cacheFile);
                 if (content.isEmpty())
                 {
                     return Optional.empty();
@@ -196,7 +298,7 @@ public class FileApiCache implements ApiCache
             return Optional.empty();
         }
 
-        Optional<String> content = readCacheFile(cacheFile);
+        Optional<byte[]> content = readCacheFile(cacheFile);
         if (content.isEmpty())
         {
             return Optional.empty();
@@ -227,24 +329,25 @@ public class FileApiCache implements ApiCache
 
 
     /**
-     * Reads the content of a cache file. Subclasses may override this to apply decompression or
-     * other transformations.
+     * Reads the content of a cache file as its <b>decoded bytes</b> — decoded in the sense of the
+     * storage form only (a subclass may decompress or decrypt here), never in the sense of a
+     * character set. The bytes are handed on to callers untouched.
      *
      * @param aCacheFile
      *            the cache file path.
-     * @return the file content.
+     * @return the file content as raw bytes.
      * @throws IOException
      *             in case of an I/O error.
      */
-    protected Optional<String> readCacheFile(Path aCacheFile) throws IOException
+    protected Optional<byte[]> readCacheFile(Path aCacheFile) throws IOException
     {
-        return Optional.of(Files.readString(aCacheFile, StandardCharsets.UTF_8));
+        return Optional.of(Files.readAllBytes(aCacheFile));
     }
 
 
     @SuppressWarnings("PMD.EmptyCatchBlock")
     @Override
-    public void write(String aPath, String aContent)
+    public void write(String aPath, byte[] aContent)
     {
         Path tmp = null;
         try
@@ -253,7 +356,7 @@ public class FileApiCache implements ApiCache
             Files.createDirectories(cacheFile.getParent());
 
             tmp = Files.createTempFile(cacheDir, "cache", ".tmp");
-            Files.writeString(tmp, aContent, StandardCharsets.UTF_8);
+            Files.write(tmp, aContent);
             Files.move(tmp, cacheFile, StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING);
             tmp = null; // move succeeded, no cleanup needed
@@ -337,26 +440,36 @@ public class FileApiCache implements ApiCache
     /**
      * Builds a {@link CacheEntry} from a cache body file and its companion metadata file.
      */
+    private CacheEntry buildCacheEntry(Path aCacheFile, byte[] aContent)
+    {
+        CacheMeta meta = readMeta(aCacheFile);
+        return new CacheEntry(meta.statusCode(), meta.headers(), aContent);
+    }
+
+
+    /**
+     * Reads the {@code .meta} sidecar of a cache body file, falling back to status 200 and empty
+     * headers when it is absent or corrupt. The returned record's headers are never {@code null}.
+     */
     @SuppressWarnings("PMD.EmptyCatchBlock")
-    private CacheEntry buildCacheEntry(Path aCacheFile, String aContent)
+    private CacheMeta readMeta(Path aCacheFile)
     {
         Path metaFile = metaFilePath(aCacheFile);
-        int statusCode = 200;
-        Map<String, List<String>> headers = Collections.emptyMap();
         if (Files.exists(metaFile))
         {
             try
             {
                 CacheMeta meta = META_MAPPER.readValue(metaFile.toFile(), CACHE_META_TYPE);
-                statusCode = meta.statusCode();
-                headers = meta.headers() != null ? meta.headers() : Collections.emptyMap();
+                Map<String, List<String>> headers = meta.headers() != null ? meta.headers()
+                        : Collections.emptyMap();
+                return new CacheMeta(meta.statusCode(), headers);
             }
             catch (IOException _)
             {
                 // Corrupted meta file — use defaults
             }
         }
-        return new CacheEntry(statusCode, headers, aContent);
+        return new CacheMeta(200, Collections.emptyMap());
     }
 
 

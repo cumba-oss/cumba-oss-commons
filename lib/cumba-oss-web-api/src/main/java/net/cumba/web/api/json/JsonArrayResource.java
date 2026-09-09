@@ -122,10 +122,13 @@ public final class JsonArrayResource implements ApiArrayResource
     @Override
     public boolean isInt(int aIndex)
     {
-        // Broad "is-numeric" intent (mirrors test contract: isInt(3.14) is true).
-        // Delegates to isNumber so the loose semantics live in one place; the strict
-        // typed predicates are isLong (canConvertToLong) and isDouble (isFloatingPointNumber).
-        return isNumber(aIndex);
+        // F-webapi-03 ruling (2026-09-08): "isInt should return false if it is not
+        // really an int." True only for an integral number that fits a Java int —
+        // the same shape as isLong below, and now consistent with the XML
+        // implementations of this interface. (This deliberately replaces the earlier
+        // broad is-numeric contract under which isInt(3.14) was true.)
+        JsonNode element = node.get(aIndex);
+        return element != null && element.isIntegralNumber() && element.canConvertToInt();
     }
 
 
@@ -133,8 +136,10 @@ public final class JsonArrayResource implements ApiArrayResource
     public OptionalInt getInt(int aIndex)
     {
         JsonNode element = node.get(aIndex);
-        if (element == null || !element.isNumber())
+        if (element == null || !element.isIntegralNumber() || !element.canConvertToInt())
         {
+            // F-webapi-03: no silent narrowing — a double or an out-of-int-range long
+            // answers empty, exactly the values isInt rejects.
             return OptionalInt.empty();
         }
         return OptionalInt.of(element.asInt());

@@ -13,14 +13,14 @@ public class NoOpApiCache implements ApiCache
     public static final NoOpApiCache INSTANCE = new NoOpApiCache();
 
     @Override
-    public Optional<String> read(String aPath)
+    public Optional<byte[]> read(String aPath)
     {
         return Optional.empty();
     }
 
 
     @Override
-    public void write(String aPath, String aContent)
+    public void write(String aPath, byte[] aContent)
     {
         // no-op
     }

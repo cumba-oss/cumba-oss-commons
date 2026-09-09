@@ -420,7 +420,7 @@ class DtoRoundtripTest
                            "cdash":[{"href":"/c"}],
                            "cdashig":[{"href":"/cig"}],
                            "packages":[{"href":"/pkg"}],
-                           "instrument":[{"href":"/qrs"}]}}
+                           "instruments":[{"href":"/qrs"}]}}
                 """, ProductGroup.class);
         assertEquals(1, pg.adamLinks().size());
         assertEquals(1, pg.sdtmLinks().size());

@@ -40,6 +40,19 @@
     </Match>
 
     <Match>
+        <!-- CacheEntry.content is a byte[] shared with the caller on
+             purpose, in both directions. A cached CDISC Library response
+             runs to tens of megabytes; copying it once on construction and
+             again on every content() call is exactly the allocation this
+             type exists to avoid, and is why the body is bytes rather than
+             a String at all. The array is immutable by convention: see
+             the class javadoc, which states the contract for callers. -->
+        <Class name="net.cumba.web.api.cache.CacheEntry" />
+        <Field name="content" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+
+    <Match>
         <!-- ObjectMapper exposure is by design; clients reconfigure the
              shared mapper. -->
         <Class name="net.cumba.web.api.json.JsonApiClient" />

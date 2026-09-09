@@ -1,5 +1,7 @@
 package net.cumba.web.api.cache;
 
+import static net.cumba.web.api.cache.CacheBytes.bytes;
+import static net.cumba.web.api.cache.CacheBytes.text;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -99,13 +101,14 @@ class FileApiCacheIntegrationTest
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
             CacheEntry entry = new CacheEntry(200,
-                    Map.of("Content-Type", List.of("application/json")), "{\"hello\":\"world\"}");
+                    Map.of("Content-Type", List.of("application/json")),
+                    bytes("{\"hello\":\"world\"}"));
             cache.put(requestFor("/data"), entry);
 
             Optional<CacheEntry> got = cache.get(requestFor("/data"));
             assertTrue(got.isPresent());
             assertEquals(200, got.get().statusCode());
-            assertEquals("{\"hello\":\"world\"}", got.get().content());
+            assertEquals("{\"hello\":\"world\"}", text(got.get().content()));
             assertEquals(List.of("application/json"), got.get().headers().get("Content-Type"));
         }
 
@@ -115,7 +118,7 @@ class FileApiCacheIntegrationTest
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
             cache.put(requestFor("/data"),
-                    new CacheEntry(201, Map.of("X-Test", List.of("v1")), "body"));
+                    new CacheEntry(201, Map.of("X-Test", List.of("v1")), bytes("body")));
 
             try (var stream = Files.list(tempDir))
             {
@@ -131,7 +134,7 @@ class FileApiCacheIntegrationTest
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
             HttpRequest req = requestFor("/data");
-            cache.put(req, new CacheEntry(200, Map.of(), "content"));
+            cache.put(req, new CacheEntry(200, Map.of(), bytes("content")));
 
             assertTrue(cache.invalidate(req));
             assertFalse(cache.get(req).isPresent());
@@ -189,13 +192,13 @@ class FileApiCacheIntegrationTest
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
             // write body only (no meta sidecar) — emulates pre-existing legacy cache entry
-            cache.write("/data", "raw content");
+            cache.write("/data", bytes("raw content"));
 
             Optional<CacheEntry> entry = cache.readEntry("/data");
             assertTrue(entry.isPresent());
             assertEquals(200, entry.get().statusCode());
             assertTrue(entry.get().headers().isEmpty());
-            assertEquals("raw content", entry.get().content());
+            assertEquals("raw content", text(entry.get().content()));
         }
 
 
@@ -204,13 +207,13 @@ class FileApiCacheIntegrationTest
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
             cache.writeEntry("/data",
-                    new CacheEntry(404, Map.of("X-Err", List.of("nope")), "missing"));
+                    new CacheEntry(404, Map.of("X-Err", List.of("nope")), bytes("missing")));
 
             Optional<CacheEntry> entry = cache.readEntry("/data");
             assertTrue(entry.isPresent());
             assertEquals(404, entry.get().statusCode());
             assertEquals(List.of("nope"), entry.get().headers().get("X-Err"));
-            assertEquals("missing", entry.get().content());
+            assertEquals("missing", text(entry.get().content()));
         }
 
 
@@ -218,7 +221,7 @@ class FileApiCacheIntegrationTest
         void readEntryHandlesCorruptedMetaFile(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            cache.write("/data", "body");
+            cache.write("/data", bytes("body"));
 
             // Write a garbled .meta sidecar
             Path bodyFile = tempDir.resolve(cache.toCacheFileName("/data"));
@@ -240,7 +243,7 @@ class FileApiCacheIntegrationTest
         {
             CacheValidator rejectAll = (_, _, _) -> false;
             FileApiCache cache = new FileApiCache(tempDir, ".json", rejectAll);
-            cache.writeEntry("/data", new CacheEntry("body"));
+            cache.writeEntry("/data", new CacheEntry(bytes("body")));
 
             assertFalse(cache.readEntry("/data").isPresent());
         }
@@ -251,7 +254,7 @@ class FileApiCacheIntegrationTest
         {
             CacheValidator rejectAll = (_, _, _) -> false;
             FileApiCache cache = new FileApiCache(tempDir, ".json", rejectAll);
-            cache.writeEntry("/data", new CacheEntry("body"));
+            cache.writeEntry("/data", new CacheEntry(bytes("body")));
 
             cache.readEntry("/data");
             assertFalse(cache.cacheTimestamp("/data").isPresent());
@@ -264,7 +267,7 @@ class FileApiCacheIntegrationTest
             // Validator that uses request context: accept only GET requests
             CacheValidator validator = (req, _, _) -> req != null;
             FileApiCache cache = new FileApiCache(tempDir, ".json", validator);
-            cache.writeEntry("/data", new CacheEntry("ok"));
+            cache.writeEntry("/data", new CacheEntry(bytes("ok")));
 
             assertTrue(cache.get(requestFor("/data")).isPresent());
         }
@@ -280,7 +283,7 @@ class FileApiCacheIntegrationTest
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
             CacheEntry entry = new CacheEntry(200, Map.of("Set-Cookie", List.of("a=1", "b=2")),
-                    "body");
+                    bytes("body"));
             cache.writeEntry("/data", entry);
 
             Optional<CacheEntry> got = cache.readEntry("/data");
@@ -293,7 +296,7 @@ class FileApiCacheIntegrationTest
         void emptyHeadersPreserved(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            cache.writeEntry("/data", new CacheEntry(200, Map.of(), "body"));
+            cache.writeEntry("/data", new CacheEntry(200, Map.of(), bytes("body")));
 
             Optional<CacheEntry> got = cache.readEntry("/data");
             assertTrue(got.isPresent());
@@ -305,7 +308,7 @@ class FileApiCacheIntegrationTest
         void nullHeadersConvertedToEmpty(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            cache.writeEntry("/data", new CacheEntry(200, null, "body"));
+            cache.writeEntry("/data", new CacheEntry(200, null, bytes("body")));
 
             Optional<CacheEntry> got = cache.readEntry("/data");
             assertTrue(got.isPresent());
@@ -321,11 +324,11 @@ class FileApiCacheIntegrationTest
             // can't handle null content, but the body of `CacheEntry` may still be null —
             // confirm we don't crash when reading a body file that exists with empty content.
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            cache.write("/data", "");
+            cache.write("/data", bytes(""));
 
-            Optional<String> got = cache.read("/data");
+            Optional<byte[]> got = cache.read("/data");
             assertTrue(got.isPresent());
-            assertEquals("", got.get());
+            assertEquals("", text(got.get()));
         }
     }
 
@@ -357,7 +360,8 @@ class FileApiCacheIntegrationTest
         void invalidateRemovesMetaFile(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            cache.writeEntry("/data", new CacheEntry(200, Map.of("X", List.of("y")), "content"));
+            cache.writeEntry("/data",
+                    new CacheEntry(200, Map.of("X", List.of("y")), bytes("content")));
 
             Path metaFile = tempDir.resolve(cache.toCacheFileName("/data") + ".meta");
             assertTrue(Files.exists(metaFile));
@@ -371,7 +375,7 @@ class FileApiCacheIntegrationTest
         void timestampReturnsValueForExistingEntry(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            cache.write("/data", "content");
+            cache.write("/data", bytes("content"));
             OptionalLong ts = cache.cacheTimestamp("/data");
             assertTrue(ts.isPresent());
         }
@@ -381,10 +385,10 @@ class FileApiCacheIntegrationTest
         void writeOverwritesExistingEntry(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            cache.write("/data", "first");
-            cache.write("/data", "second");
+            cache.write("/data", bytes("first"));
+            cache.write("/data", bytes("second"));
 
-            assertEquals("second", cache.read("/data").orElse(null));
+            assertEquals("second", cache.read("/data").map(CacheBytes::text).orElse(null));
         }
 
 
@@ -392,7 +396,7 @@ class FileApiCacheIntegrationTest
         void writeInNestedSubdirectoryStillFlatFile(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            cache.write("/a/b/c/leaf", "value");
+            cache.write("/a/b/c/leaf", bytes("value"));
 
             // No nested directories — slashes are flattened to underscores
             try (var stream = Files.list(tempDir))
@@ -401,7 +405,7 @@ class FileApiCacheIntegrationTest
                 assertEquals(1, files.size());
                 assertTrue(files.get(0).getFileName().toString().contains("a_b_c_leaf"));
             }
-            assertEquals("value", cache.read("/a/b/c/leaf").orElse(null));
+            assertEquals("value", cache.read("/a/b/c/leaf").map(CacheBytes::text).orElse(null));
         }
 
 
@@ -409,7 +413,7 @@ class FileApiCacheIntegrationTest
         void readReturnsEmptyForMissingEntry(@TempDir Path tempDir) throws IOException
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            Optional<String> result = cache.read("/missing");
+            Optional<byte[]> result = cache.read("/missing");
             assertNull(result.orElse(null));
         }
     }

@@ -1,17 +1,19 @@
 package net.cumba.web.api.xml;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
+import lombok.CustomLog;
 import net.cumba.web.api.AbstractApiClient;
 import net.cumba.web.api.ApiException;
 import net.cumba.web.api.ApiResource;
 import net.cumba.web.api.http.HttpRequest;
 import net.cumba.web.api.http.HttpResponse;
-import org.jspecify.annotations.Nullable;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
@@ -36,27 +38,44 @@ import org.xml.sax.SAXException;
  * ItemGroupDef igDef = client.get("/define/IG.DM", ItemGroupDef.class);
  * </pre>
  */
+@CustomLog
 public class XmlApiClient extends AbstractApiClient
 {
 
     private final DocumentBuilderFactory documentBuilderFactory;
 
-    @SuppressWarnings("PMD.EmptyCatchBlock")
     protected XmlApiClient(Builder builder)
     {
         super(builder, ".xml");
 
         this.documentBuilderFactory = DocumentBuilderFactory.newInstance();
         this.documentBuilderFactory.setNamespaceAware(true);
-        // Disable external entities for security
+        // XXE defence in depth (F-webapi-06). newInstance() performs JAXP lookup, so a
+        // third-party factory can be substituted via system property or ServiceLoader;
+        // each individual feature is best-effort against such a factory, but losing
+        // one is no longer losing all of them, and every loss is logged instead of
+        // silently degrading to an XXE-capable parser.
+        this.documentBuilderFactory.setXIncludeAware(false);
+        this.documentBuilderFactory.setExpandEntityReferences(false);
+        trySetFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        trySetFeature("http://xml.org/sax/features/external-general-entities", false);
+        trySetFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        trySetFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+    }
+
+
+    private void trySetFeature(String aFeature, boolean aValue)
+    {
         try
         {
-            this.documentBuilderFactory
-                    .setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            this.documentBuilderFactory.setFeature(aFeature, aValue);
         }
-        catch (ParserConfigurationException _)
+        catch (ParserConfigurationException ex)
         {
-            // Not all parsers support this feature — continue without it
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "XML parser factory " + documentBuilderFactory.getClass().getName()
+                            + " does not support the security feature \"" + aFeature
+                            + "\" — continuing without it: " + ex.getMessage());
         }
     }
 
@@ -109,12 +128,27 @@ public class XmlApiClient extends AbstractApiClient
                 String body = readBodySafe(response);
                 throw new ApiException(response.statusCode(), body);
             }
-            if (response.body() == null)
+            // Read body() ONCE into a local: null-checking one call and dereferencing
+            // a second is what SpotBugs 4.10 flags as
+            // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE.
+            InputStream body = response.body();
+            if (body == null)
             {
                 throw new ApiException(response.statusCode(),
                         "Server returned empty response body");
             }
-            return parseXml(response.body());
+            // A 2xx whose body is blank — zero bytes, or nothing but whitespace — is
+            // not a transport failure but a server one. Fail with ApiException here,
+            // symmetrically with JsonApiClient.getRawJson, instead of letting parseXml
+            // surface it as a generic IOException("Failed to parse XML response")
+            // (F-webapi-05).
+            byte[] bytes = body.readAllBytes();
+            if (new String(bytes, StandardCharsets.UTF_8).isBlank())
+            {
+                throw new ApiException(response.statusCode(),
+                        "Server returned a blank response body");
+            }
+            return parseXml(new ByteArrayInputStream(bytes));
         }
     }
 
@@ -160,30 +194,5 @@ public class XmlApiClient extends AbstractApiClient
 
 
         public abstract XmlApiClient build();
-    }
-
-    // --- Internal ---
-
-    /**
-     * Reads the response body as a string, returning a placeholder on failure.
-     */
-    protected static @Nullable String readBodySafe(HttpResponse aResponse)
-    {
-        // Read body() ONCE into a local: null-checking one call and dereferencing
-        // a second is what SpotBugs 4.10 flags as
-        // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE.
-        InputStream body = aResponse.body();
-        if (body == null)
-        {
-            return null;
-        }
-        try
-        {
-            return new String(body.readAllBytes(), StandardCharsets.UTF_8);
-        }
-        catch (IOException _)
-        {
-            return "(unable to read response body)";
-        }
     }
 }

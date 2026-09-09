@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import net.cumba.web.api.AbstractApiClient;
 import net.cumba.web.api.ApiException;
 import net.cumba.web.api.ApiResource;
@@ -161,31 +160,5 @@ public class JsonApiClient extends AbstractApiClient
 
 
         public abstract JsonApiClient build();
-    }
-
-    // --- Internal ---
-
-    /**
-     * Reads the response body as a string, returning a placeholder on failure. Used for error
-     * responses where the body is informational only.
-     */
-    protected static @Nullable String readBodySafe(HttpResponse aResponse)
-    {
-        // Read body() ONCE into a local: null-checking one call and dereferencing
-        // a second is what SpotBugs 4.10 flags as
-        // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE.
-        InputStream body = aResponse.body();
-        if (body == null)
-        {
-            return null;
-        }
-        try
-        {
-            return new String(body.readAllBytes(), StandardCharsets.UTF_8);
-        }
-        catch (IOException _)
-        {
-            return "(unable to read response body)";
-        }
     }
 }

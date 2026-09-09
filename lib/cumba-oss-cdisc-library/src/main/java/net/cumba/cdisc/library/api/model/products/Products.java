@@ -11,8 +11,8 @@ import net.cumba.web.api.Link;
  *
  * <p>
  * The product catalog organizes available standards into groups such as data-collection,
- * data-tabulation, data-analysis, terminology, and qrs. Each group contains links to available
- * product versions.
+ * data-tabulation, data-analysis, terminology, integrated and qrs. Each group contains links to
+ * available product versions.
  * </p>
  */
 public interface Products extends ApiResource
@@ -86,7 +86,29 @@ public interface Products extends ApiResource
     {
         return getObject("_links", ApiResource.class)
                 .flatMap(links -> links.getObject("qrs", ApiResource.class))
-                .map(q -> q.getLinks("instrument")).orElse(List.of());
+                .map(q -> q.getLinks("instruments")).orElse(List.of());
+    }
+
+
+    /**
+     * Links to integrated standard (TIG) product versions.
+     *
+     * <p>
+     * Read from {@code _links.integrated._links.tig}. The live response serves that relation as a
+     * MIXED array: four link objects, plus a trailing integrated-standard descriptor that carries
+     * {@code self} and {@code standards} instead of an {@code href}. Only entries carrying an
+     * {@code href} are returned — the descriptor is not a link, and the four hrefs nested under its
+     * {@code standards} are the same four already present as links.
+     * </p>
+     *
+     * @return links to the integrated standard product versions.
+     */
+    default List<Link> integratedLinks()
+    {
+        return getObject("_links", ApiResource.class)
+                .flatMap(links -> links.getObject("integrated", ApiResource.class))
+                .map(i -> i.getLinks("tig")).orElse(List.of()).stream()
+                .filter(link -> link.href().isPresent()).toList();
     }
 
 
@@ -95,7 +117,7 @@ public interface Products extends ApiResource
     {
         return Stream
                 .of(adamLinks(), sdtmLinks(), sdtmigLinks(), sendigLinks(), cdashLinks(),
-                        cdashigLinks(), terminologyLinks(), qrsLinks())
+                        cdashigLinks(), terminologyLinks(), qrsLinks(), integratedLinks())
                 .flatMap(List::stream).toList();
     }
 }

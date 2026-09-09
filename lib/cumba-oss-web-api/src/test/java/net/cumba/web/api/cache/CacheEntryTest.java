@@ -1,5 +1,7 @@
 package net.cumba.web.api.cache;
 
+import static net.cumba.web.api.cache.CacheBytes.bytes;
+import static net.cumba.web.api.cache.CacheBytes.text;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -32,8 +34,8 @@ class CacheEntryTest
     @Test
     void emptyContentIsAccepted()
     {
-        CacheEntry entry = new CacheEntry("");
-        assertEquals("", entry.content());
+        CacheEntry entry = new CacheEntry(bytes(""));
+        assertEquals("", text(entry.content()));
         assertEquals(200, entry.statusCode());
     }
 
@@ -41,7 +43,7 @@ class CacheEntryTest
     @Test
     void toHttpResponseAlwaysProvidesABodyStream() throws IOException
     {
-        CacheEntry entry = new CacheEntry(200, Map.of("X", List.of("y")), "hello");
+        CacheEntry entry = new CacheEntry(200, Map.of("X", List.of("y")), bytes("hello"));
         try (HttpResponse response = entry.toHttpResponse())
         {
             assertNotNull(response.body());
@@ -55,7 +57,7 @@ class CacheEntryTest
     @Test
     void emptyContentRoundTripsToAnEmptyBodyStream() throws IOException
     {
-        CacheEntry entry = new CacheEntry("");
+        CacheEntry entry = new CacheEntry(bytes(""));
         try (HttpResponse response = entry.toHttpResponse())
         {
             assertNotNull(response.body());

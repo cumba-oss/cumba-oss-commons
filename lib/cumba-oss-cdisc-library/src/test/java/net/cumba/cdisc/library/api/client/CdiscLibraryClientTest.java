@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -476,6 +478,83 @@ class CdiscLibraryClientTest
     {
         return new HttpResponse(200, java.util.Map.of(),
                 new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
+    }
+
+
+    /**
+     * F-cdisc-library-02: a BLANK system property must be treated as absent, exactly as a blank
+     * environment variable already was.
+     *
+     * <p>
+     * Before the fix, {@code retrieveSystemProperty} guarded only the environment side and returned
+     * the property verbatim, so {@code -Dcdisc.library.api.key="   "} produced a blank {@code
+     * api-key} header. The request then failed as an opaque {@code 401} from the server instead of
+     * failing at the point the key was mis-set.
+     * </p>
+     */
+    @Test
+    void retrieveSystemPropertyTreatsABlankPropertyAsAbsent()
+    {
+        String propName = "cumba.test.retrieveSystemProperty.blank";
+        System.setProperty(propName, "   ");
+        try
+        {
+            assertNull(CdiscLibraryClient.retrieveSystemProperty("CUMBA_UNSET_ENV_VAR_9f3a",
+                    propName));
+            System.setProperty(propName, "");
+            assertNull(CdiscLibraryClient.retrieveSystemProperty("CUMBA_UNSET_ENV_VAR_9f3a",
+                    propName));
+        }
+        finally
+        {
+            System.clearProperty(propName);
+        }
+    }
+
+
+    /**
+     * F-cdisc-library-02, the fail-loud half: a blank {@code cdisc.library.api.key} must abort the
+     * build with the "apiKey is required" failure, not configure a client that sends a blank key.
+     */
+    @Test
+    void aBlankApiKeyPropertyFailsTheBuilderLoudly()
+    {
+        assumeTrue(System.getenv(CdiscLibraryClient.ENV_CDISC_API_KEY) == null,
+                "CDISC_API_KEY must be unset for this test");
+        String previous = System.getProperty(CdiscLibraryClient.SP_CDISC_API_KEY);
+        try
+        {
+            System.setProperty(CdiscLibraryClient.SP_CDISC_API_KEY, "   ");
+            assertNull(CdiscLibraryClient.getApiKey());
+            NullPointerException ex = assertThrows(NullPointerException.class,
+                    () -> CdiscLibraryClient.builder().build());
+            assertTrue(ex.getMessage().contains("apiKey is required"), ex.getMessage());
+        }
+        finally
+        {
+            if (previous == null)
+            {
+                System.clearProperty(CdiscLibraryClient.SP_CDISC_API_KEY);
+            }
+            else
+            {
+                System.setProperty(CdiscLibraryClient.SP_CDISC_API_KEY, previous);
+            }
+        }
+    }
+
+
+    /**
+     * F-cdisc-library-02: the same rule where a caller hands the builder the blank key directly. A
+     * blank key is not a key, and a client that sends one is indistinguishable from a client that
+     * was never configured.
+     */
+    @Test
+    void theBuilderRejectsABlankApiKey()
+    {
+        assertThrows(IllegalArgumentException.class,
+                () -> CdiscLibraryClient.builder().apiKey("   "));
+        assertThrows(IllegalArgumentException.class, () -> CdiscLibraryClient.builder().apiKey(""));
     }
 
     /**

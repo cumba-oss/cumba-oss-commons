@@ -201,8 +201,10 @@ public final class XmlElementResource implements ApiResource
 
     /**
      * Checks whether a child element is "complex" (has child elements or attributes beyond xmlns).
+     * Package-private so {@link XmlChildListResource#isObject(int)} shares the exact same
+     * definition (F-webapi-07).
      */
-    private static boolean isComplexElement(Element aElement)
+    static boolean isComplexElement(Element aElement)
     {
         // Has non-xmlns attributes?
         NamedNodeMap attrs = aElement.getAttributes();
@@ -327,8 +329,13 @@ public final class XmlElementResource implements ApiResource
     @Override
     public OptionalInt getInt(String aFieldName)
     {
+        // F-webapi-03: never narrow a value that does not fit an int.
         Long val = tryParseLong(resolveField(aFieldName));
-        return val != null ? OptionalInt.of(val.intValue()) : OptionalInt.empty();
+        if (val == null || val < Integer.MIN_VALUE || val > Integer.MAX_VALUE)
+        {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(val.intValue());
     }
 
 

@@ -67,4 +67,15 @@ public class TtlCacheValidator implements CacheValidator
     {
         return (clock.getAsLong() - aCacheTimestamp) <= timeoutMs;
     }
+
+
+    /**
+     * {@return {@code false}} — this validator reads nothing but the timestamp, so a cache serving
+     * it need not materialise the entry's body. See {@link CacheValidator#needsContent()}.
+     */
+    @Override
+    public boolean needsContent()
+    {
+        return false;
+    }
 }

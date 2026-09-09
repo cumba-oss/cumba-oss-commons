@@ -232,7 +232,12 @@ public class CdiscLibraryClient extends JsonApiClient
         {
             return res;
         }
-        return System.getProperty(aPropertyName);
+        String prop = System.getProperty(aPropertyName);
+        // A blank system property is treated exactly like a blank environment variable: as absent.
+        // Without this, -Dcdisc.library.api.key=" " reached the builder and was sent verbatim as
+        // the api-key header, so a mis-set property failed as an opaque 401 instead of failing
+        // here.
+        return CDT.isBlankOrNull(prop) ? null : prop;
     }
 
 
@@ -306,7 +311,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/products/{group}} with optional expand. */
     public ProductGroup getProductGroup(String group, boolean expand) throws IOException
     {
-        requireNonEmpty(group, "group");
+        group = pathSegment(group, "group");
         return get(expand("/mdr/products/" + group, expand), ProductGroup.class);
     }
 
@@ -323,7 +328,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/adam/{product}} with optional expand. */
     public AdamProduct getAdamProduct(String product, boolean expand) throws IOException
     {
-        requireNonEmpty(product, TYPE_PRODUCT);
+        product = pathSegment(product, TYPE_PRODUCT);
         return get(expand(PATH_MDR_ADAM + product, expand), AdamProduct.class);
     }
 
@@ -332,8 +337,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public AdamDataStructure getAdamDataStructure(String product, String dataStructure)
         throws IOException
     {
-        requireNonEmpty(product, TYPE_PRODUCT);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
+        product = pathSegment(product, TYPE_PRODUCT);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
         return get(PATH_MDR_ADAM + product + SEG_DATASTRUCTURES_SLASH + dataStructure,
                 AdamDataStructure.class);
     }
@@ -349,7 +354,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/adam/{product}/datastructures} with optional expand. */
     public List<Link> getAdamDataStructureLinks(String product, boolean expand) throws IOException
     {
-        requireNonEmpty(product, TYPE_PRODUCT);
+        product = pathSegment(product, TYPE_PRODUCT);
         ApiResource ds = get(expand(PATH_MDR_ADAM + product + "/datastructures", expand));
         return ds.getLinks("dataStructures");
     }
@@ -367,8 +372,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getAdamVariableSetLinks(String product, String dataStructure, boolean expand)
         throws IOException
     {
-        requireNonEmpty(product, TYPE_PRODUCT);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
+        product = pathSegment(product, TYPE_PRODUCT);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
         ApiResource vs = get(expand(
                 PATH_MDR_ADAM + product + SEG_DATASTRUCTURES_SLASH + dataStructure + "/varsets",
                 expand));
@@ -379,8 +384,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/adam/{product}/datastructures/{ds}/variables} — returns variable links. */
     public List<Link> getAdamVariableLinks(String product, String dataStructure) throws IOException
     {
-        requireNonEmpty(product, TYPE_PRODUCT);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
+        product = pathSegment(product, TYPE_PRODUCT);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
         ApiResource res = get(
                 PATH_MDR_ADAM + product + SEG_DATASTRUCTURES_SLASH + dataStructure + SEG_VARIABLES);
         return res.getLinks("analysisVariables");
@@ -391,9 +396,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public AdamVariable getAdamVariable(String product, String dataStructure, String variable)
         throws IOException
     {
-        requireNonEmpty(product, TYPE_PRODUCT);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        product = pathSegment(product, TYPE_PRODUCT);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get(PATH_MDR_ADAM + product + SEG_DATASTRUCTURES_SLASH + dataStructure
                 + SEG_VARIABLES_SLASH + variable, AdamVariable.class);
     }
@@ -403,9 +408,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public AdamVariableSet getAdamVariableSet(String product, String dataStructure, String varset)
         throws IOException
     {
-        requireNonEmpty(product, TYPE_PRODUCT);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
-        requireNonEmpty(varset, "varset");
+        product = pathSegment(product, TYPE_PRODUCT);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
+        varset = pathSegment(varset, "varset");
         return get(PATH_MDR_ADAM + product + SEG_DATASTRUCTURES_SLASH + dataStructure + "/varsets/"
                 + varset, AdamVariableSet.class);
     }
@@ -431,8 +436,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public SdtmProduct getSdtmVersion(String standard, String version, boolean expand)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(expand(PATH_MDR + standard + "/" + version, expand), SdtmProduct.class);
     }
 
@@ -440,7 +445,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/sdtm/{version}/classes} — returns class links. */
     public List<Link> getSdtmClassLinks(String version) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         ApiResource res = get(PATH_MDR_SDTM + version + SEG_CLASSES);
         return res.getLinks(LINK_CLASSES);
     }
@@ -449,8 +454,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/sdtm/{version}/classes/{className}} */
     public SdtmClass getSdtmClass(String version, String className) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_SDTM + version + SEG_CLASSES_SLASH + className, SdtmClass.class);
     }
 
@@ -460,8 +465,8 @@ public class CdiscLibraryClient extends JsonApiClient
      */
     public List<Link> getSdtmClassVariableLinks(String version, String className) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         ApiResource res = get(
                 PATH_MDR_SDTM + version + SEG_CLASSES_SLASH + className + SEG_VARIABLES);
         return res.getLinks("classVariables");
@@ -472,9 +477,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public SdtmVariable getSdtmClassVariable(String version, String className, String variable)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get(PATH_MDR_SDTM + version + SEG_CLASSES_SLASH + className + SEG_VARIABLES_SLASH
                 + variable, SdtmVariable.class);
     }
@@ -486,8 +491,8 @@ public class CdiscLibraryClient extends JsonApiClient
      */
     public List<Link> getSdtmClassDatasetLinks(String version, String className) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         ApiResource res = get(
                 PATH_MDR_SDTM + version + SEG_CLASSES_SLASH + className + SEG_DATASETS);
         return res.getLinks(LINK_DATASETS);
@@ -497,7 +502,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/sdtmig/{version}/classes} — returns SDTM-IG class links. */
     public List<Link> getSdtmigClassLinks(String version) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         ApiResource res = get(PATH_MDR_SDTMIG + version + SEG_CLASSES);
         return res.getLinks(LINK_CLASSES);
     }
@@ -506,8 +511,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/sdtmig/{version}/classes/{className}} */
     public SdtmClass getSdtmigClass(String version, String className) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_SDTMIG + version + SEG_CLASSES_SLASH + className, SdtmClass.class);
     }
 
@@ -516,8 +521,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getSdtmigClassDatasetLinks(String version, String className)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         ApiResource res = get(
                 PATH_MDR_SDTMIG + version + SEG_CLASSES_SLASH + className + SEG_DATASETS);
         return res.getLinks(LINK_DATASETS);
@@ -528,9 +533,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public SdtmDataset getSdtmDataset(String standard, String version, String dataset)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
         return get(PATH_MDR + standard + "/" + version + SEG_DATASETS_SLASH + dataset,
                 SdtmDataset.class);
     }
@@ -541,10 +546,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String variable)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get(PATH_MDR + standard + "/" + version + SEG_DATASETS_SLASH + dataset
                 + SEG_VARIABLES_SLASH + variable, SdtmVariable.class);
     }
@@ -561,8 +566,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getSdtmDatasetLinks(String standard, String version, boolean expand)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         ApiResource datasets = get(
                 expand(PATH_MDR + standard + "/" + version + SEG_DATASETS, expand));
         return datasets.getLinks(LINK_DATASETS);
@@ -576,9 +581,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getSdtmDatasetVariableLinks(String standard, String version, String dataset)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
         ApiResource res = get(
                 PATH_MDR + standard + "/" + version + SEG_DATASETS_SLASH + dataset + SEG_VARIABLES);
         return res.getLinks(LINK_DATASET_VARIABLES);
@@ -593,8 +598,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public ApiResource getRootSdtmClassVariable(String className, String variable)
         throws IOException
     {
-        requireNonEmpty(className, TYPE_CLASS_NAME);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        className = pathSegment(className, TYPE_CLASS_NAME);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get("/mdr/root/sdtm/classes/" + className + SEG_VARIABLES_SLASH + variable);
     }
 
@@ -605,8 +610,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public ApiResource getRootSdtmDatasetVariable(String dataset, String variable)
         throws IOException
     {
-        requireNonEmpty(dataset, TYPE_DATASET);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        dataset = pathSegment(dataset, TYPE_DATASET);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get("/mdr/root/sdtm/datasets/" + dataset + SEG_VARIABLES_SLASH + variable);
     }
 
@@ -618,8 +623,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public ApiResource getRootSdtmigDatasetVariable(String dataset, String variable)
         throws IOException
     {
-        requireNonEmpty(dataset, TYPE_DATASET);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        dataset = pathSegment(dataset, TYPE_DATASET);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get("/mdr/root/sdtmig/datasets/" + dataset + SEG_VARIABLES_SLASH + variable);
     }
 
@@ -643,7 +648,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/ct/packages/{package}} with optional expand. */
     public CtPackage getCtPackage(String packageId, boolean expand) throws IOException
     {
-        requireNonEmpty(packageId, TYPE_PACKAGE_ID);
+        packageId = pathSegment(packageId, TYPE_PACKAGE_ID);
         return get(expand(PATH_MDR_CT_PACKAGES + packageId, expand), CtPackage.class);
     }
 
@@ -658,7 +663,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** Returns codelist links for a CT package with optional expand. */
     public List<Link> getCtCodelistLinks(String packageId, boolean expand) throws IOException
     {
-        requireNonEmpty(packageId, TYPE_PACKAGE_ID);
+        packageId = pathSegment(packageId, TYPE_PACKAGE_ID);
         ApiResource codelists = get(
                 expand(PATH_MDR_CT_PACKAGES + packageId + "/codelists", expand));
         return codelists.getLinks("codelists");
@@ -668,8 +673,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/ct/packages/{package}/codelists/{codelist}} */
     public CtCodelist getCtCodelist(String packageId, String codelist) throws IOException
     {
-        requireNonEmpty(packageId, TYPE_PACKAGE_ID);
-        requireNonEmpty(codelist, TYPE_CODELIST);
+        packageId = pathSegment(packageId, TYPE_PACKAGE_ID);
+        codelist = pathSegment(codelist, TYPE_CODELIST);
         return get(PATH_MDR_CT_PACKAGES + packageId + SEG_CODELISTS_SLASH + codelist,
                 CtCodelist.class);
     }
@@ -678,8 +683,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/ct/packages/{package}/codelists/{codelist}/terms} — lists terms as links. */
     public List<Link> getCtTermLinks(String packageId, String codelist) throws IOException
     {
-        requireNonEmpty(packageId, TYPE_PACKAGE_ID);
-        requireNonEmpty(codelist, TYPE_CODELIST);
+        packageId = pathSegment(packageId, TYPE_PACKAGE_ID);
+        codelist = pathSegment(codelist, TYPE_CODELIST);
         ApiResource terms = get(
                 PATH_MDR_CT_PACKAGES + packageId + SEG_CODELISTS_SLASH + codelist + "/terms");
         return terms.getLinks("terms");
@@ -689,9 +694,9 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/ct/packages/{package}/codelists/{codelist}/terms/{term}} */
     public CtTerm getCtTerm(String packageId, String codelist, String term) throws IOException
     {
-        requireNonEmpty(packageId, TYPE_PACKAGE_ID);
-        requireNonEmpty(codelist, TYPE_CODELIST);
-        requireNonEmpty(term, "term");
+        packageId = pathSegment(packageId, TYPE_PACKAGE_ID);
+        codelist = pathSegment(codelist, TYPE_CODELIST);
+        term = pathSegment(term, "term");
         return get(PATH_MDR_CT_PACKAGES + packageId + SEG_CODELISTS_SLASH + codelist + "/terms/"
                 + term, CtTerm.class);
     }
@@ -702,8 +707,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/root/ct/{package-type}/codelists/{codelist}} — versionless codelist. */
     public CtCodelist getRootCtCodelist(String packageType, String codelist) throws IOException
     {
-        requireNonEmpty(packageType, "packageType");
-        requireNonEmpty(codelist, TYPE_CODELIST);
+        packageType = pathSegment(packageType, "packageType");
+        codelist = pathSegment(codelist, TYPE_CODELIST);
         return get("/mdr/root/ct/" + packageType + SEG_CODELISTS_SLASH + codelist,
                 CtCodelist.class);
     }
@@ -714,9 +719,9 @@ public class CdiscLibraryClient extends JsonApiClient
      */
     public CtTerm getRootCtTerm(String packageType, String codelist, String term) throws IOException
     {
-        requireNonEmpty(packageType, "packageType");
-        requireNonEmpty(codelist, TYPE_CODELIST);
-        requireNonEmpty(term, "term");
+        packageType = pathSegment(packageType, "packageType");
+        codelist = pathSegment(codelist, TYPE_CODELIST);
+        term = pathSegment(term, "term");
         return get(
                 "/mdr/root/ct/" + packageType + SEG_CODELISTS_SLASH + codelist + "/terms/" + term,
                 CtTerm.class);
@@ -735,7 +740,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdash/{version}} with optional expand. */
     public CdashProduct getCdashVersion(String version, boolean expand) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(expand(PATH_MDR_CDASH + version, expand), CdashProduct.class);
     }
 
@@ -743,7 +748,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdash/{version}/classes} — returns class links. */
     public List<Link> getCdashClassLinks(String version) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_CDASH + version + SEG_CLASSES).getLinks(LINK_CLASSES);
     }
 
@@ -751,8 +756,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdash/{version}/classes/{className}} */
     public CdashClass getCdashClass(String version, String className) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_CDASH + version + SEG_CLASSES_SLASH + className, CdashClass.class);
     }
 
@@ -760,8 +765,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdash/{version}/classes/{className}/domains} — returns domain links. */
     public List<Link> getCdashClassDomainLinks(String version, String className) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_CDASH + version + SEG_CLASSES_SLASH + className + SEG_DOMAINS)
                 .getLinks(LINK_DOMAINS);
     }
@@ -771,9 +776,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public CdashField getCdashClassField(String version, String className, String field)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
-        requireNonEmpty(field, TYPE_FIELD);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
+        field = pathSegment(field, TYPE_FIELD);
         return get(
                 PATH_MDR_CDASH + version + SEG_CLASSES_SLASH + className + SEG_FIELDS_SLASH + field,
                 CdashField.class);
@@ -783,7 +788,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdash/{version}/domains} — returns domain links. */
     public List<Link> getCdashDomainLinks(String version) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_CDASH + version + SEG_DOMAINS).getLinks(LINK_DOMAINS);
     }
 
@@ -791,8 +796,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdash/{version}/domains/{domain}} */
     public CdashDomain getCdashDomain(String version, String domain) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(domain, TYPE_DOMAIN);
+        version = pathSegment(version, TYPE_VERSION);
+        domain = pathSegment(domain, TYPE_DOMAIN);
         return get(PATH_MDR_CDASH + version + SEG_DOMAINS_SLASH + domain, CdashDomain.class);
     }
 
@@ -800,8 +805,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdash/{version}/domains/{domain}/fields} — returns field links. */
     public List<Link> getCdashDomainFieldLinks(String version, String domain) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(domain, TYPE_DOMAIN);
+        version = pathSegment(version, TYPE_VERSION);
+        domain = pathSegment(domain, TYPE_DOMAIN);
         return get(PATH_MDR_CDASH + version + SEG_DOMAINS_SLASH + domain + SEG_FIELDS)
                 .getLinks(LINK_FIELDS);
     }
@@ -811,9 +816,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public CdashField getCdashDomainField(String version, String domain, String field)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(domain, TYPE_DOMAIN);
-        requireNonEmpty(field, TYPE_FIELD);
+        version = pathSegment(version, TYPE_VERSION);
+        domain = pathSegment(domain, TYPE_DOMAIN);
+        field = pathSegment(field, TYPE_FIELD);
         return get(PATH_MDR_CDASH + version + SEG_DOMAINS_SLASH + domain + SEG_FIELDS_SLASH + field,
                 CdashField.class);
     }
@@ -824,8 +829,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/root/cdash/classes/{className}/fields/{field}} */
     public ApiResource getRootCdashClassField(String className, String field) throws IOException
     {
-        requireNonEmpty(className, TYPE_CLASS_NAME);
-        requireNonEmpty(field, TYPE_FIELD);
+        className = pathSegment(className, TYPE_CLASS_NAME);
+        field = pathSegment(field, TYPE_FIELD);
         return get("/mdr/root/cdash/classes/" + className + SEG_FIELDS_SLASH + field);
     }
 
@@ -833,8 +838,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/root/cdash/domains/{domain}/fields/{field}} */
     public ApiResource getRootCdashDomainField(String domain, String field) throws IOException
     {
-        requireNonEmpty(domain, TYPE_DOMAIN);
-        requireNonEmpty(field, TYPE_FIELD);
+        domain = pathSegment(domain, TYPE_DOMAIN);
+        field = pathSegment(field, TYPE_FIELD);
         return get("/mdr/root/cdash/domains/" + domain + SEG_FIELDS_SLASH + field);
     }
 
@@ -851,7 +856,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdashig/{version}} with optional expand. */
     public CdashProduct getCdashigVersion(String version, boolean expand) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(expand(PATH_MDR_CDASHIG + version, expand), CdashProduct.class);
     }
 
@@ -859,7 +864,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdashig/{version}/classes} */
     public List<Link> getCdashigClassLinks(String version) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_CDASHIG + version + SEG_CLASSES).getLinks(LINK_CLASSES);
     }
 
@@ -867,8 +872,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdashig/{version}/classes/{className}} */
     public CdashClass getCdashigClass(String version, String className) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_CDASHIG + version + SEG_CLASSES_SLASH + className, CdashClass.class);
     }
 
@@ -877,8 +882,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getCdashigClassDomainLinks(String version, String className)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_CDASHIG + version + SEG_CLASSES_SLASH + className + SEG_DOMAINS)
                 .getLinks(LINK_DOMAINS);
     }
@@ -888,8 +893,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getCdashigClassScenarioLinks(String version, String className)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_CDASHIG + version + SEG_CLASSES_SLASH + className + SEG_SCENARIOS)
                 .getLinks(LINK_SCENARIOS);
     }
@@ -898,7 +903,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdashig/{version}/domains} */
     public List<Link> getCdashigDomainLinks(String version) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_CDASHIG + version + SEG_DOMAINS).getLinks(LINK_DOMAINS);
     }
 
@@ -906,8 +911,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdashig/{version}/domains/{domain}} */
     public CdashDomain getCdashigDomain(String version, String domain) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(domain, TYPE_DOMAIN);
+        version = pathSegment(version, TYPE_VERSION);
+        domain = pathSegment(domain, TYPE_DOMAIN);
         return get(PATH_MDR_CDASHIG + version + SEG_DOMAINS_SLASH + domain, CdashDomain.class);
     }
 
@@ -915,8 +920,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdashig/{version}/domains/{domain}/fields} */
     public List<Link> getCdashigDomainFieldLinks(String version, String domain) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(domain, TYPE_DOMAIN);
+        version = pathSegment(version, TYPE_VERSION);
+        domain = pathSegment(domain, TYPE_DOMAIN);
         return get(PATH_MDR_CDASHIG + version + SEG_DOMAINS_SLASH + domain + SEG_FIELDS)
                 .getLinks(LINK_FIELDS);
     }
@@ -926,9 +931,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public CdashField getCdashigDomainField(String version, String domain, String field)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(domain, TYPE_DOMAIN);
-        requireNonEmpty(field, TYPE_FIELD);
+        version = pathSegment(version, TYPE_VERSION);
+        domain = pathSegment(domain, TYPE_DOMAIN);
+        field = pathSegment(field, TYPE_FIELD);
         return get(
                 PATH_MDR_CDASHIG + version + SEG_DOMAINS_SLASH + domain + SEG_FIELDS_SLASH + field,
                 CdashField.class);
@@ -938,7 +943,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdashig/{version}/scenarios} */
     public List<Link> getCdashigScenarioLinks(String version) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_CDASHIG + version + SEG_SCENARIOS).getLinks(LINK_SCENARIOS);
     }
 
@@ -946,8 +951,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/cdashig/{version}/scenarios/{scenario}} */
     public CdashScenario getCdashigScenario(String version, String scenario) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(scenario, TYPE_SCENARIO);
+        version = pathSegment(version, TYPE_VERSION);
+        scenario = pathSegment(scenario, TYPE_SCENARIO);
         return get(PATH_MDR_CDASHIG + version + SEG_SCENARIOS_SLASH + scenario,
                 CdashScenario.class);
     }
@@ -957,8 +962,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getCdashigScenarioFieldLinks(String version, String scenario)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(scenario, TYPE_SCENARIO);
+        version = pathSegment(version, TYPE_VERSION);
+        scenario = pathSegment(scenario, TYPE_SCENARIO);
         return get(PATH_MDR_CDASHIG + version + SEG_SCENARIOS_SLASH + scenario + SEG_FIELDS)
                 .getLinks(LINK_FIELDS);
     }
@@ -968,9 +973,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public CdashField getCdashigScenarioField(String version, String scenario, String field)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(scenario, TYPE_SCENARIO);
-        requireNonEmpty(field, TYPE_FIELD);
+        version = pathSegment(version, TYPE_VERSION);
+        scenario = pathSegment(scenario, TYPE_SCENARIO);
+        field = pathSegment(field, TYPE_FIELD);
         return get(PATH_MDR_CDASHIG + version + SEG_SCENARIOS_SLASH + scenario + SEG_FIELDS_SLASH
                 + field, CdashField.class);
     }
@@ -981,8 +986,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/root/cdashig/domains/{domain}/fields/{field}} */
     public ApiResource getRootCdashigDomainField(String domain, String field) throws IOException
     {
-        requireNonEmpty(domain, TYPE_DOMAIN);
-        requireNonEmpty(field, TYPE_FIELD);
+        domain = pathSegment(domain, TYPE_DOMAIN);
+        field = pathSegment(field, TYPE_FIELD);
         return get("/mdr/root/cdashig/domains/" + domain + SEG_FIELDS_SLASH + field);
     }
 
@@ -990,8 +995,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/root/cdashig/scenarios/{scenario}/fields/{field}} */
     public ApiResource getRootCdashigScenarioField(String scenario, String field) throws IOException
     {
-        requireNonEmpty(scenario, TYPE_SCENARIO);
-        requireNonEmpty(field, TYPE_FIELD);
+        scenario = pathSegment(scenario, TYPE_SCENARIO);
+        field = pathSegment(field, TYPE_FIELD);
         return get("/mdr/root/cdashig/scenarios/" + scenario + SEG_FIELDS_SLASH + field);
     }
 
@@ -1008,7 +1013,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/sendig/{version}} with optional expand. */
     public SdtmProduct getSendigVersion(String version, boolean expand) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(expand(PATH_MDR_SENDIG + version, expand), SdtmProduct.class);
     }
 
@@ -1016,7 +1021,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/sendig/{version}/classes} */
     public List<Link> getSendigClassLinks(String version) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_SENDIG + version + SEG_CLASSES).getLinks(LINK_CLASSES);
     }
 
@@ -1024,8 +1029,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/sendig/{version}/classes/{className}} */
     public SdtmClass getSendigClass(String version, String className) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_SENDIG + version + SEG_CLASSES_SLASH + className, SdtmClass.class);
     }
 
@@ -1034,8 +1039,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getSendigClassDatasetLinks(String version, String className)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_SENDIG + version + SEG_CLASSES_SLASH + className + SEG_DATASETS)
                 .getLinks(LINK_DATASETS);
     }
@@ -1044,7 +1049,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/sendig/{version}/datasets} */
     public List<Link> getSendigDatasetLinks(String version) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_SENDIG + version + SEG_DATASETS).getLinks(LINK_DATASETS);
     }
 
@@ -1052,8 +1057,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/sendig/{version}/datasets/{dataset}} */
     public SdtmDataset getSendigDataset(String version, String dataset) throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
         return get(PATH_MDR_SENDIG + version + SEG_DATASETS_SLASH + dataset, SdtmDataset.class);
     }
 
@@ -1062,8 +1067,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getSendigDatasetVariableLinks(String version, String dataset)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
         return get(PATH_MDR_SENDIG + version + SEG_DATASETS_SLASH + dataset + SEG_VARIABLES)
                 .getLinks(LINK_DATASET_VARIABLES);
     }
@@ -1073,9 +1078,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public SdtmVariable getSendigVariable(String version, String dataset, String variable)
         throws IOException
     {
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get(PATH_MDR_SENDIG + version + SEG_DATASETS_SLASH + dataset + SEG_VARIABLES_SLASH
                 + variable, SdtmVariable.class);
     }
@@ -1086,8 +1091,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/root/sendig/datasets/{dataset}/variables/{var}} */
     public ApiResource getRootSendigVariable(String dataset, String variable) throws IOException
     {
-        requireNonEmpty(dataset, TYPE_DATASET);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        dataset = pathSegment(dataset, TYPE_DATASET);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get("/mdr/root/sendig/datasets/" + dataset + SEG_VARIABLES_SLASH + variable);
     }
 
@@ -1098,8 +1103,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public IntegratedProduct getIntegratedVersion(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version, IntegratedProduct.class);
     }
 
@@ -1109,8 +1114,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/integrated/{standard}/{version}/sdtm} */
     public SdtmProduct getIntegratedSdtm(String standard, String version) throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/sdtm", SdtmProduct.class);
     }
 
@@ -1119,8 +1124,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getIntegratedSdtmClassLinks(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/sdtm/classes")
                 .getLinks(LINK_CLASSES);
     }
@@ -1130,9 +1135,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public SdtmClass getIntegratedSdtmClass(String standard, String version, String className)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/sdtm/classes/" + className,
                 SdtmClass.class);
     }
@@ -1143,9 +1148,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String className)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/sdtm/classes/" + className
                 + SEG_DATASETS).getLinks(LINK_DATASETS);
     }
@@ -1155,8 +1160,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getIntegratedSdtmDatasetLinks(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/sdtm/datasets")
                 .getLinks(LINK_DATASETS);
     }
@@ -1166,9 +1171,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public SdtmDataset getIntegratedSdtmDataset(String standard, String version, String dataset)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
         return get(
                 PATH_MDR_INTEGRATED + standard + "/" + version + SEG_SDTM_DATASETS_SLASH + dataset,
                 SdtmDataset.class);
@@ -1180,9 +1185,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String dataset)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_SDTM_DATASETS_SLASH
                 + dataset + SEG_VARIABLES).getLinks(LINK_DATASET_VARIABLES);
     }
@@ -1193,10 +1198,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String variable)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_SDTM_DATASETS_SLASH
                 + dataset + SEG_VARIABLES_SLASH + variable, SdtmVariable.class);
     }
@@ -1207,9 +1212,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String variable)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(dataset, TYPE_DATASET);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        dataset = pathSegment(dataset, TYPE_DATASET);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get(PATH_MDR_ROOT_INTEGRATED + standard + SEG_SDTM_DATASETS_SLASH + dataset
                 + SEG_VARIABLES_SLASH + variable);
     }
@@ -1220,8 +1225,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/integrated/{standard}/{version}/send} */
     public SdtmProduct getIntegratedSend(String standard, String version) throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/send", SdtmProduct.class);
     }
 
@@ -1230,8 +1235,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getIntegratedSendClassLinks(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/send/classes")
                 .getLinks(LINK_CLASSES);
     }
@@ -1241,9 +1246,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public SdtmClass getIntegratedSendClass(String standard, String version, String className)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/send/classes/" + className,
                 SdtmClass.class);
     }
@@ -1254,9 +1259,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String className)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/send/classes/" + className
                 + SEG_DATASETS).getLinks(LINK_DATASETS);
     }
@@ -1266,8 +1271,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getIntegratedSendDatasetLinks(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/send/datasets")
                 .getLinks(LINK_DATASETS);
     }
@@ -1277,9 +1282,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public SdtmDataset getIntegratedSendDataset(String standard, String version, String dataset)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
         return get(
                 PATH_MDR_INTEGRATED + standard + "/" + version + SEG_SEND_DATASETS_SLASH + dataset,
                 SdtmDataset.class);
@@ -1291,9 +1296,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String dataset)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_SEND_DATASETS_SLASH
                 + dataset + SEG_VARIABLES).getLinks(LINK_DATASET_VARIABLES);
     }
@@ -1304,10 +1309,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String variable)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataset, TYPE_DATASET);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataset = pathSegment(dataset, TYPE_DATASET);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_SEND_DATASETS_SLASH
                 + dataset + SEG_VARIABLES_SLASH + variable, SdtmVariable.class);
     }
@@ -1318,9 +1323,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String variable)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(dataset, TYPE_DATASET);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        dataset = pathSegment(dataset, TYPE_DATASET);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get(PATH_MDR_ROOT_INTEGRATED + standard + SEG_SEND_DATASETS_SLASH + dataset
                 + SEG_VARIABLES_SLASH + variable);
     }
@@ -1331,8 +1336,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/integrated/{standard}/{version}/adam} */
     public AdamProduct getIntegratedAdam(String standard, String version) throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/adam", AdamProduct.class);
     }
 
@@ -1341,8 +1346,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getIntegratedAdamDataStructureLinks(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/adam/datastructures")
                 .getLinks("dataStructures");
     }
@@ -1353,9 +1358,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String dataStructure)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_ADAM_DATASTRUCTURES_SLASH
                 + dataStructure, AdamDataStructure.class);
     }
@@ -1366,9 +1371,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String dataStructure)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_ADAM_DATASTRUCTURES_SLASH
                 + dataStructure + SEG_VARIABLES).getLinks("analysisVariables");
     }
@@ -1379,10 +1384,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String dataStructure, String variable)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
-        requireNonEmpty(variable, TYPE_VARIABLE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
+        variable = pathSegment(variable, TYPE_VARIABLE);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_ADAM_DATASTRUCTURES_SLASH
                 + dataStructure + SEG_VARIABLES_SLASH + variable, AdamVariable.class);
     }
@@ -1393,9 +1398,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String dataStructure)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_ADAM_DATASTRUCTURES_SLASH
                 + dataStructure + "/varsets").getLinks("analysisVariableSets");
     }
@@ -1408,10 +1413,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String dataStructure, String varset)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(dataStructure, TYPE_DATA_STRUCTURE);
-        requireNonEmpty(varset, "varset");
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        dataStructure = pathSegment(dataStructure, TYPE_DATA_STRUCTURE);
+        varset = pathSegment(varset, "varset");
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_ADAM_DATASTRUCTURES_SLASH
                 + dataStructure + "/varsets/" + varset, AdamVariableSet.class);
     }
@@ -1422,8 +1427,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/integrated/{standard}/{version}/cdash} */
     public CdashProduct getIntegratedCdash(String standard, String version) throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH, CdashProduct.class);
     }
 
@@ -1432,8 +1437,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getIntegratedCdashClassLinks(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/cdash/classes")
                 .getLinks(LINK_CLASSES);
     }
@@ -1443,9 +1448,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public CdashClass getIntegratedCdashClass(String standard, String version, String className)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH_CLASSES_SLASH
                 + className, CdashClass.class);
     }
@@ -1456,9 +1461,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String className)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH_CLASSES_SLASH
                 + className + SEG_DOMAINS).getLinks(LINK_DOMAINS);
     }
@@ -1469,9 +1474,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String className)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(className, TYPE_CLASS_NAME);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        className = pathSegment(className, TYPE_CLASS_NAME);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH_CLASSES_SLASH
                 + className + SEG_SCENARIOS).getLinks(LINK_SCENARIOS);
     }
@@ -1481,8 +1486,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getIntegratedCdashDomainLinks(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/cdash/domains")
                 .getLinks(LINK_DOMAINS);
     }
@@ -1492,9 +1497,9 @@ public class CdiscLibraryClient extends JsonApiClient
     public CdashDomain getIntegratedCdashDomain(String standard, String version, String domain)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(domain, TYPE_DOMAIN);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        domain = pathSegment(domain, TYPE_DOMAIN);
         return get(
                 PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH_DOMAINS_SLASH + domain,
                 CdashDomain.class);
@@ -1506,9 +1511,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String domain)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(domain, TYPE_DOMAIN);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        domain = pathSegment(domain, TYPE_DOMAIN);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH_DOMAINS_SLASH + domain
                 + SEG_FIELDS).getLinks(LINK_FIELDS);
     }
@@ -1519,10 +1524,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String field)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(domain, TYPE_DOMAIN);
-        requireNonEmpty(field, TYPE_FIELD);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        domain = pathSegment(domain, TYPE_DOMAIN);
+        field = pathSegment(field, TYPE_FIELD);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH_DOMAINS_SLASH + domain
                 + SEG_FIELDS_SLASH + field, CdashField.class);
     }
@@ -1533,9 +1538,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String field)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(domain, TYPE_DOMAIN);
-        requireNonEmpty(field, TYPE_FIELD);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        domain = pathSegment(domain, TYPE_DOMAIN);
+        field = pathSegment(field, TYPE_FIELD);
         return get(PATH_MDR_ROOT_INTEGRATED + standard + SEG_CDASH_DOMAINS_SLASH + domain
                 + SEG_FIELDS_SLASH + field);
     }
@@ -1545,8 +1550,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public List<Link> getIntegratedCdashScenarioLinks(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + "/cdash/scenarios")
                 .getLinks(LINK_SCENARIOS);
     }
@@ -1557,9 +1562,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String scenario)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(scenario, TYPE_SCENARIO);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        scenario = pathSegment(scenario, TYPE_SCENARIO);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH_SCENARIOS_SLASH
                 + scenario, CdashScenario.class);
     }
@@ -1570,9 +1575,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String scenario)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(scenario, TYPE_SCENARIO);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        scenario = pathSegment(scenario, TYPE_SCENARIO);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH_SCENARIOS_SLASH
                 + scenario + SEG_FIELDS).getLinks(LINK_FIELDS);
     }
@@ -1585,10 +1590,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String scenario, String field)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(scenario, TYPE_SCENARIO);
-        requireNonEmpty(field, TYPE_FIELD);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        scenario = pathSegment(scenario, TYPE_SCENARIO);
+        field = pathSegment(field, TYPE_FIELD);
         return get(PATH_MDR_INTEGRATED + standard + "/" + version + SEG_CDASH_SCENARIOS_SLASH
                 + scenario + SEG_FIELDS_SLASH + field, CdashField.class);
     }
@@ -1599,9 +1604,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String field)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(scenario, TYPE_SCENARIO);
-        requireNonEmpty(field, TYPE_FIELD);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        scenario = pathSegment(scenario, TYPE_SCENARIO);
+        field = pathSegment(field, TYPE_FIELD);
         return get(PATH_MDR_ROOT_INTEGRATED + standard + SEG_CDASH_SCENARIOS_SLASH + scenario
                 + SEG_FIELDS_SLASH + field);
     }
@@ -1612,8 +1617,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/qrs/instruments/{instrument}/versions/{version}} */
     public QrsInstrument getQrsInstrument(String instrument, String version) throws IOException
     {
-        requireNonEmpty(instrument, TYPE_INSTRUMENT);
-        requireNonEmpty(version, TYPE_VERSION);
+        instrument = pathSegment(instrument, TYPE_INSTRUMENT);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_QRS_INSTRUMENTS + instrument + SEG_VERSIONS_SLASH + version,
                 QrsInstrument.class);
     }
@@ -1622,8 +1627,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/qrs/instruments/{instrument}/versions/{version}/responseGroups} */
     public List<Link> getQrsResponseGroupLinks(String instrument, String version) throws IOException
     {
-        requireNonEmpty(instrument, TYPE_INSTRUMENT);
-        requireNonEmpty(version, TYPE_VERSION);
+        instrument = pathSegment(instrument, TYPE_INSTRUMENT);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_QRS_INSTRUMENTS + instrument + SEG_VERSIONS_SLASH + version
                 + "/responseGroups").getLinks("responseGroups");
     }
@@ -1637,9 +1642,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String responseGroup)
         throws IOException
     {
-        requireNonEmpty(instrument, TYPE_INSTRUMENT);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(responseGroup, "responseGroup");
+        instrument = pathSegment(instrument, TYPE_INSTRUMENT);
+        version = pathSegment(version, TYPE_VERSION);
+        responseGroup = pathSegment(responseGroup, "responseGroup");
         return get(PATH_MDR_QRS_INSTRUMENTS + instrument + SEG_VERSIONS_SLASH + version
                 + "/responseGroups/" + responseGroup, QrsResponseGroup.class);
     }
@@ -1648,8 +1653,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/qrs/instruments/{instrument}/versions/{version}/items} */
     public List<Link> getQrsItemLinks(String instrument, String version) throws IOException
     {
-        requireNonEmpty(instrument, TYPE_INSTRUMENT);
-        requireNonEmpty(version, TYPE_VERSION);
+        instrument = pathSegment(instrument, TYPE_INSTRUMENT);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_QRS_INSTRUMENTS + instrument + SEG_VERSIONS_SLASH + version + "/items")
                 .getLinks("items");
     }
@@ -1658,9 +1663,9 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/qrs/instruments/{instrument}/versions/{version}/items/{item}} */
     public QrsItem getQrsItem(String instrument, String version, String item) throws IOException
     {
-        requireNonEmpty(instrument, TYPE_INSTRUMENT);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(item, "item");
+        instrument = pathSegment(instrument, TYPE_INSTRUMENT);
+        version = pathSegment(version, TYPE_VERSION);
+        item = pathSegment(item, "item");
         return get(PATH_MDR_QRS_INSTRUMENTS + instrument + SEG_VERSIONS_SLASH + version + "/items/"
                 + item, QrsItem.class);
     }
@@ -1669,7 +1674,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/root/qrs/instruments/{instrument}} — versionless instrument. */
     public ApiResource getRootQrsInstrument(String instrument) throws IOException
     {
-        requireNonEmpty(instrument, TYPE_INSTRUMENT);
+        instrument = pathSegment(instrument, TYPE_INSTRUMENT);
         return get("/mdr/root/qrs/instruments/" + instrument);
     }
 
@@ -1693,8 +1698,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/rules/{standard}/{version}} */
     public RulePackage getRules(String standard, String version) throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get("/mdr/rules/" + standard + "/" + version, RulePackage.class);
     }
 
@@ -1702,9 +1707,9 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/rules/{standard}/{version}/rule/{rule_id}} */
     public Rule getRule(String standard, String version, String ruleId) throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(ruleId, "ruleId");
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        ruleId = pathSegment(ruleId, "ruleId");
         return get("/mdr/rules/" + standard + "/" + version + "/rule/" + ruleId, Rule.class);
     }
 
@@ -1748,7 +1753,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/search/scopes/{scope}} — search within a specific scope. */
     public SearchResult searchInScope(String scope) throws IOException
     {
-        requireNonEmpty(scope, "scope");
+        scope = pathSegment(scope, "scope");
         return get("/mdr/search/scopes/" + scope, SearchResult.class);
     }
 
@@ -1771,7 +1776,7 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/documents/{document_id}} */
     public Document getDocument(String documentId) throws IOException
     {
-        requireNonEmpty(documentId, "documentId");
+        documentId = pathSegment(documentId, "documentId");
         return get(PATH_MDR_DOCUMENTS + documentId, Document.class);
     }
 
@@ -1780,8 +1785,8 @@ public class CdiscLibraryClient extends JsonApiClient
     public DocumentSectionList getDocumentSections(String standard, String version)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_DOCUMENTS + standard + "/" + version + SEG_SECTIONS,
                 DocumentSectionList.class);
     }
@@ -1792,9 +1797,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String structure)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(structure, TYPE_STRUCTURE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        structure = pathSegment(structure, TYPE_STRUCTURE);
         return get(PATH_MDR_DOCUMENTS + standard + "/" + version + "/" + structure + SEG_SECTIONS,
                 DocumentSectionList.class);
     }
@@ -1805,10 +1810,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String structure, String section)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(structure, TYPE_STRUCTURE);
-        requireNonEmpty(section, TYPE_SECTION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        structure = pathSegment(structure, TYPE_STRUCTURE);
+        section = pathSegment(section, TYPE_SECTION);
         return get(PATH_MDR_DOCUMENTS + standard + "/" + version + "/" + structure
                 + SEG_SECTIONS_SLASH + section, DocumentList.class);
     }
@@ -1817,8 +1822,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/documents/{standard}/{version}/usecases} */
     public UseCaseList getDocumentUseCases(String standard, String version) throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
         return get(PATH_MDR_DOCUMENTS + standard + "/" + version + "/usecases", UseCaseList.class);
     }
 
@@ -1828,9 +1833,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String useCase)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(useCase, TYPE_USE_CASE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        useCase = pathSegment(useCase, TYPE_USE_CASE);
         return get(PATH_MDR_DOCUMENTS + standard + "/" + version + SEG_USECASES_SLASH + useCase
                 + SEG_SECTIONS, DocumentSectionList.class);
     }
@@ -1841,10 +1846,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String section)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(useCase, TYPE_USE_CASE);
-        requireNonEmpty(section, TYPE_SECTION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        useCase = pathSegment(useCase, TYPE_USE_CASE);
+        section = pathSegment(section, TYPE_SECTION);
         return get(PATH_MDR_DOCUMENTS + standard + "/" + version + SEG_USECASES_SLASH + useCase
                 + SEG_SECTIONS_SLASH + section, DocumentList.class);
     }
@@ -1857,9 +1862,9 @@ public class CdiscLibraryClient extends JsonApiClient
             String subtype)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(subtype, TYPE_SUBTYPE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        subtype = pathSegment(subtype, TYPE_SUBTYPE);
         return get(PATH_MDR_DOCUMENTS_INTEGRATED + standard + "/" + version + "/" + subtype
                 + SEG_SECTIONS, DocumentSectionList.class);
     }
@@ -1870,10 +1875,10 @@ public class CdiscLibraryClient extends JsonApiClient
             String version, String subtype, String structure)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(subtype, TYPE_SUBTYPE);
-        requireNonEmpty(structure, TYPE_STRUCTURE);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        subtype = pathSegment(subtype, TYPE_SUBTYPE);
+        structure = pathSegment(structure, TYPE_STRUCTURE);
         return get(PATH_MDR_DOCUMENTS_INTEGRATED + standard + "/" + version + "/" + subtype + "/"
                 + structure + SEG_SECTIONS, DocumentSectionList.class);
     }
@@ -1887,11 +1892,11 @@ public class CdiscLibraryClient extends JsonApiClient
             String subtype, String structure, String section)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(subtype, TYPE_SUBTYPE);
-        requireNonEmpty(structure, TYPE_STRUCTURE);
-        requireNonEmpty(section, TYPE_SECTION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        subtype = pathSegment(subtype, TYPE_SUBTYPE);
+        structure = pathSegment(structure, TYPE_STRUCTURE);
+        section = pathSegment(section, TYPE_SECTION);
         return get(PATH_MDR_DOCUMENTS_INTEGRATED + standard + "/" + version + "/" + subtype + "/"
                 + structure + SEG_SECTIONS_SLASH + section, DocumentList.class);
     }
@@ -1905,11 +1910,11 @@ public class CdiscLibraryClient extends JsonApiClient
             String subtype, String useCase, String section)
         throws IOException
     {
-        requireNonEmpty(standard, TYPE_STANDARD);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(subtype, TYPE_SUBTYPE);
-        requireNonEmpty(useCase, TYPE_USE_CASE);
-        requireNonEmpty(section, TYPE_SECTION);
+        standard = pathSegment(standard, TYPE_STANDARD);
+        version = pathSegment(version, TYPE_VERSION);
+        subtype = pathSegment(subtype, TYPE_SUBTYPE);
+        useCase = pathSegment(useCase, TYPE_USE_CASE);
+        section = pathSegment(section, TYPE_SECTION);
         return get(
                 PATH_MDR_DOCUMENTS_INTEGRATED + standard + "/" + version + "/" + subtype
                         + SEG_USECASES_SLASH + useCase + SEG_SECTIONS_SLASH + section,
@@ -1922,8 +1927,8 @@ public class CdiscLibraryClient extends JsonApiClient
     /** {@code GET /mdr/diff/{product}/{version}} — diff against prior version. */
     public DiffResult getDiff(String product, String version) throws IOException
     {
-        requireNonEmpty(product, TYPE_PRODUCT);
-        requireNonEmpty(version, TYPE_VERSION);
+        product = pathSegment(product, TYPE_PRODUCT);
+        version = pathSegment(version, TYPE_VERSION);
         return get("/mdr/diff/" + product + "/" + version, DiffResult.class);
     }
 
@@ -1934,9 +1939,9 @@ public class CdiscLibraryClient extends JsonApiClient
      */
     public DiffResult getDiff(String product, String version, String previous) throws IOException
     {
-        requireNonEmpty(product, TYPE_PRODUCT);
-        requireNonEmpty(version, TYPE_VERSION);
-        requireNonEmpty(previous, "previous");
+        product = pathSegment(product, TYPE_PRODUCT);
+        version = pathSegment(version, TYPE_VERSION);
+        previous = pathSegment(previous, "previous");
         return get("/mdr/diff/" + product + "/" + version + "/" + previous, DiffResult.class);
     }
 
@@ -2011,6 +2016,48 @@ public class CdiscLibraryClient extends JsonApiClient
     }
 
 
+    /**
+     * Percent-encodes one caller-supplied value as a single URI <em>path segment</em> (RFC 3986
+     * {@code pchar}).
+     *
+     * <p>
+     * Deliberately not {@link #urlEncode(String)}, which produces the
+     * {@code application/x-www-form-urlencoded} form that belongs in a query string: in a path a
+     * space is {@code %20} and never {@code +}, and a {@code /} must not survive the encoding — an
+     * unencoded one silently addresses a different resource and the server answers {@code 200} for
+     * it. {@code URLEncoder} is used as the escape engine and its two deviations from RFC 3986 are
+     * undone afterwards:
+     * </p>
+     * <ul>
+     * <li>{@code +} back to {@code %20}. A literal plus in the input has already been escaped to
+     * {@code %2B}, so every {@code +} left in the output is a space.</li>
+     * <li>{@code %7E} back to the unreserved {@code ~}. A literal percent in the input has already
+     * been escaped to {@code %25}, so every {@code %7E} left in the output is a tilde.</li>
+     * </ul>
+     * <p>
+     * The sub-delimiters {@code !$&'()+,;=} and {@code :@} are legal in a segment but are
+     * percent-encoded here; that is over-encoding, not mis-encoding, and no CDISC Library path
+     * parameter uses them.
+     * </p>
+     */
+    private static String encodePathSegment(String value)
+    {
+        return urlEncode(value).replace("+", "%20").replace("%7E", "~");
+    }
+
+
+    /**
+     * Validates a caller-supplied path parameter and returns it encoded as a single URI path
+     * segment. Every endpoint that interpolates a value into a path uses this; the three endpoints
+     * that interpolate into a query string use {@link #requireNonEmpty} plus
+     * {@link #urlEncode(String)} instead.
+     */
+    private static String pathSegment(String value, String paramName)
+    {
+        return encodePathSegment(requireNonEmpty(value, paramName));
+    }
+
+
     private static String requireNonEmpty(String value, String paramName)
     {
         Objects.requireNonNull(value, paramName + " must not be null");
@@ -2051,7 +2098,12 @@ public class CdiscLibraryClient extends JsonApiClient
         /** Sets the CDISC Library API key (required). */
         public CdiscBuilder apiKey(String apiKey)
         {
-            this.apiKey = Objects.requireNonNull(apiKey, "apiKey must not be null");
+            Objects.requireNonNull(apiKey, "apiKey must not be null");
+            if (apiKey.isBlank())
+            {
+                throw new IllegalArgumentException("apiKey must not be blank");
+            }
+            this.apiKey = apiKey;
             return this;
         }
 

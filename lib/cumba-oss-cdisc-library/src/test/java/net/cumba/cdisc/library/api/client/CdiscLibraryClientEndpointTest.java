@@ -1,6 +1,7 @@
 package net.cumba.cdisc.library.api.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -48,6 +49,18 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 class CdiscLibraryClientEndpointTest
 {
+
+    /**
+     * Probe field written into every typed endpoint fixture and read back through the client. The
+     * name is deliberately NOT a CDISC Library field name: the fixture and the assertion are the
+     * only two places it occurs, so an assertion on it proves the response body reached the caller
+     * rather than agreeing with the product source.
+     */
+    private static final String PROBE_FIELD = "cumbaProbeField";
+
+    private static final String PROBE_VALUE = "probe-value-4711";
+
+    private static final String TYPED_JSON = "{\"" + PROBE_FIELD + "\":\"" + PROBE_VALUE + "\"}";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -542,6 +555,114 @@ class CdiscLibraryClientEndpointTest
         String path = transport.lastRequestPath();
         assertTrue(path.startsWith("/mdr/search?q="));
         assertTrue(path.contains("hello%20world") || path.contains("hello+world"));
+    }
+
+
+    /**
+     * F-cdisc-library-01: a path parameter is percent-encoded as a URI PATH SEGMENT, which is not
+     * the {@code application/x-www-form-urlencoded} form used for the query string.
+     *
+     * <p>
+     * A space in a path is {@code %20}; a {@code +} there is a literal plus and addresses a
+     * different resource. Before the fix the raw space reached {@code URI.create} and left the
+     * method as an unchecked {@link IllegalArgumentException} out of a signature that declares
+     * {@code throws IOException}.
+     * </p>
+     */
+    @Test
+    void pathParameterEncodesSpaceAsPercent20AndNotAsPlus() throws IOException
+    {
+        transport.nextResponse = jsonResponse(TYPED_JSON);
+        client.getSdtmClass("2-0", "Trial Design");
+        assertEquals("/mdr/sdtm/2-0/classes/Trial%20Design", transport.lastRequestPath());
+        assertFalse(transport.lastRequestPath().contains("+"),
+                "a path segment must not use the form-encoded '+' for a space");
+    }
+
+
+    /**
+     * F-cdisc-library-01: a {@code /} inside a path parameter must NOT survive the encoding. An
+     * unencoded one escapes its segment and silently addresses a different resource, which the
+     * server answers with 200 — the campaign's dominant defect class.
+     */
+    @Test
+    void pathParameterEncodesSlashSoItCannotEscapeItsSegment() throws IOException
+    {
+        transport.nextResponse = jsonResponse(TYPED_JSON);
+        client.getQrsInstrument("AIMS01/versions/9-9", "1-0");
+        assertEquals("/mdr/qrs/instruments/AIMS01%2Fversions%2F9-9/versions/1-0",
+                transport.lastRequestPath());
+    }
+
+
+    /**
+     * F-cdisc-library-01: a {@code ?} inside a path parameter must not be able to start a query
+     * string. This also pins the interaction with the {@code expand} helper, which decides between
+     * {@code ?expand=true} and {@code &expand=true} by looking for a {@code ?} in the endpoint — an
+     * unencoded {@code ?} in a parameter made it choose the wrong one.
+     */
+    @Test
+    void pathParameterEncodesQuestionMarkAndDoesNotConfuseExpand() throws IOException
+    {
+        transport.nextResponse = jsonResponse(TYPED_JSON);
+        client.getDocument("doc?expand=false");
+        assertEquals("/mdr/documents/doc%3Fexpand%3Dfalse", transport.lastRequestPath());
+
+        transport.nextResponse = jsonResponse(TYPED_JSON);
+        client.getAdamProduct("adam?2-1", true);
+        assertEquals("/mdr/adam/adam%3F2-1?expand=true", transport.lastRequestPath());
+    }
+
+
+    /**
+     * F-cdisc-library-01: the RFC 3986 unreserved set ({@code A-Z a-z 0-9 - . _ ~}) must pass
+     * through untouched. {@code URLEncoder} escapes {@code ~} to {@code %7E}; the encoder undoes
+     * that, so ordinary CDISC identifiers are byte-identical to what the client sent before.
+     */
+    @Test
+    void pathParameterLeavesUnreservedCharactersAlone() throws IOException
+    {
+        transport.nextResponse = jsonResponse(TYPED_JSON);
+        client.getDocument("Doc-1_2.3~4");
+        assertEquals("/mdr/documents/Doc-1_2.3~4", transport.lastRequestPath());
+    }
+
+
+    /**
+     * F-cdisc-library-01, the deliberate non-change: a QUERY parameter keeps the
+     * {@code application/x-www-form-urlencoded} form, where {@code +} for a space is correct. The
+     * two encodings are different on purpose and must not be conflated.
+     */
+    @Test
+    void queryParameterKeepsFormEncoding() throws IOException
+    {
+        transport.nextResponse = jsonResponse(TYPED_JSON);
+        client.suggest("adverse event");
+        assertEquals("/mdr/suggest?q=adverse+event", transport.lastRequestPath());
+
+        transport.nextResponse = jsonResponse(TYPED_JSON);
+        client.searchImplementedBy("/mdr/sdtmig/3-4/datasets/AE");
+        assertEquals("/mdr/search/implementedBy?href=%2Fmdr%2Fsdtmig%2F3-4%2Fdatasets%2FAE",
+                transport.lastRequestPath());
+    }
+
+
+    /**
+     * F-cdisc-library-01, the second deliberate non-change: a HATEOAS href is a whole PATH, not a
+     * path segment. {@code follow} must leave its slashes intact — encoding them would break every
+     * link the API returns.
+     */
+    @Test
+    void followDoesNotEncodeTheSlashesOfAMultiSegmentHref() throws IOException
+    {
+        transport.nextResponse = jsonResponse(
+                "{\"_links\":{\"self\":{\"href\":\"/mdr/qrs/instruments/AIMS01/versions/2-0\"}}}");
+        ApiResource root = client.get("/mdr/products", ApiResource.class);
+        Link self = root.getLink("self").orElseThrow();
+
+        transport.nextResponse = jsonResponse(TYPED_JSON);
+        client.follow(self, QrsInstrument.class);
+        assertEquals("/mdr/qrs/instruments/AIMS01/versions/2-0", transport.lastRequestPath());
     }
 
 

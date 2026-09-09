@@ -56,7 +56,8 @@ public interface CacheValidator
      *            the HTTP request for which the cached entry is being considered, or {@code null}
      *            when validation is triggered by a path-based read that carries no request context.
      * @param aEntry
-     *            the cached entry (includes status code, response headers, and body content).
+     *            the cached entry (includes status code, response headers, and the body as raw
+     *            bytes -- decode with an explicit charset, see {@link CacheEntry}).
      * @param aCacheTimestamp
      *            the time the cache entry was created, in milliseconds since the epoch (as returned
      *            by {@link ApiCache#cacheTimestamp(String)}).
@@ -64,4 +65,32 @@ public interface CacheValidator
      *         invalidated and re-fetched.
      */
     boolean isValid(@Nullable HttpRequest aRequest, CacheEntry aEntry, long aCacheTimestamp);
+
+
+    /**
+     * Declares whether {@link #isValid} actually inspects {@link CacheEntry#content()}.
+     *
+     * <p>
+     * Materialising the content is what forces a cached response to be read into memory in full
+     * before validation can even be asked — for a multi-megabyte body that is a copy the caller may
+     * never need. A validator that decides on the timestamp, the request or the cached headers
+     * alone should return {@code false}, which lets a cache serve the entry as a stream (see
+     * {@link ApiCache#openStream(HttpRequest)}) instead of a fully buffered {@code CacheEntry}. The
+     * entry passed to {@link #isValid} then carries the real status code and headers but an
+     * <b>empty</b> content array.
+     * </p>
+     *
+     * <p>
+     * The default is {@code true} — the conservative direction. A validator that inspects the body
+     * and wrongly declared otherwise would silently decide on zero bytes, which is the failure this
+     * default exists to avoid. Overriding it is an opt-in optimisation, never a requirement.
+     * </p>
+     *
+     * @return {@code true} if {@link #isValid} needs the entry's body content, {@code false} if
+     *         status code, headers, request and timestamp suffice.
+     */
+    default boolean needsContent()
+    {
+        return true;
+    }
 }

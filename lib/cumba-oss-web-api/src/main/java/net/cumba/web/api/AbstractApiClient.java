@@ -109,24 +109,46 @@ public abstract class AbstractApiClient
      * </p>
      *
      * <p>
-     * The returned {@link HttpResponse} always has a fully buffered body (backed by a
-     * {@link ByteArrayInputStream}), so it is safe to read after this method returns. The original
-     * network stream is already closed.
+     * <b>Closing the returned response is mandatory.</b> On the network path, and on a cache hit
+     * served as a {@link CacheEntry}, the body is fully buffered (a {@link ByteArrayInputStream})
+     * and the original network stream is already closed — closing costs nothing there. But a cache
+     * hit may instead be served by {@link ApiCache#openStream(HttpRequest)}, and that body is a
+     * <b>live stream over the cache's storage</b>, holding a file handle until it is closed.
+     * Callers must therefore use try-with-resources.
+     * </p>
+     *
+     * <p>
+     * A consequence worth stating plainly: the body is <b>not</b> guaranteed to be re-readable.
+     * Read it once. That was always the documented shape of {@link HttpResponse}, but the previous
+     * wording here promised buffering unconditionally, and code written against that promise —
+     * reading the body twice, or reading it after the response is closed — breaks on the streaming
+     * path. The streaming path is used only when the configured {@link CacheValidator} does not
+     * {@linkplain CacheValidator#needsContent() need the entry content}; otherwise the buffered
+     * {@code CacheEntry} path is taken exactly as before.
      * </p>
      *
      * @param aRequest
      *            the HTTP request to execute.
      * @param aCacheable
      *            {@code true} to allow caching, {@code false} to bypass the cache entirely.
-     * @return the HTTP response (from cache or network), with a buffered body.
+     * @return the HTTP response (from cache or network). Must be closed by the caller.
      * @throws IOException
      *             if a network or I/O error occurs.
      */
     protected HttpResponse execute(HttpRequest aRequest, boolean aCacheable) throws IOException
     {
-        // Try cache first
+        // Try cache first. Prefer the streaming read: the bytes are already on disk in exactly
+        // the form the parser wants, and the CacheEntry route would spend a full-size String and a
+        // full-size byte[] re-encoding them for nothing. openStream() declines (empty) on a miss,
+        // and whenever the cache's validator needs the entry content - so the buffered path below
+        // stays the behaviour for every cache and every validator that has not opted in.
         if (aCacheable)
         {
+            Optional<HttpResponse> streamed = cache.openStream(aRequest);
+            if (streamed.isPresent())
+            {
+                return streamed.get();
+            }
             Optional<CacheEntry> cached = cache.get(aRequest);
             if (cached.isPresent())
             {
@@ -137,7 +159,7 @@ public abstract class AbstractApiClient
         // Network call — read body fully and close the transport response
         int statusCode;
         Map<String, List<String>> responseHeaders;
-        String body;
+        byte[] body;
         try (HttpResponse response = transport.send(aRequest))
         {
             statusCode = response.statusCode();
@@ -147,8 +169,7 @@ public abstract class AbstractApiClient
             // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE flags: nothing guarantees the
             // second call returns the same non-null value.
             InputStream rawBody = response.body();
-            body = rawBody != null ? new String(rawBody.readAllBytes(), StandardCharsets.UTF_8)
-                    : null;
+            body = rawBody != null ? rawBody.readAllBytes() : null;
         }
 
         // Cache successful responses when allowed. A blank body - zero-length or
@@ -159,22 +180,99 @@ public abstract class AbstractApiClient
         // a permanent failure: every later call, in this and in later JVM runs, is
         // served the blank entry and throws, and the server recovering does not help -
         // nothing evicts on content, so it stands until the TTL expires (forever when
-        // no CacheValidator is configured, which is the default). isBlank() rather
-        // than isEmpty() because a whitespace-only body is just as contentless, and is
-        // rejected by that same guard; a plain string test also keeps this
+        // no CacheValidator is configured, which is the default). isBlank rather
+        // than "empty" because a whitespace-only body is just as contentless, and is
+        // rejected by that same guard; a plain whitespace test also keeps this
         // format-agnostic class free of JSON semantics - XmlApiClient gets nothing
         // usable out of a whitespace-only body either. Do not "simplify" this back to
         // body != null.
-        if (aCacheable && statusCode >= 200 && statusCode < 300 && body != null && !body.isBlank())
+        if (aCacheable && statusCode >= 200 && statusCode < 300 && body != null && !isBlank(body))
         {
             cache.put(aRequest, new CacheEntry(statusCode, responseHeaders, body));
         }
 
-        // Return a new response with a buffered body
-        InputStream bufferedBody = body != null
-                ? new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8))
-                : null;
+        // Return a new response wrapping the very bytes just read - no copy, and no
+        // decode/re-encode round trip through a String.
+        InputStream bufferedBody = body != null ? new ByteArrayInputStream(body) : null;
         return new HttpResponse(statusCode, responseHeaders, bufferedBody);
+    }
+
+
+    /**
+     * Reports whether a response body carries nothing but whitespace, without decoding it.
+     *
+     * <p>
+     * This is the {@code byte[]} counterpart of {@link String#isBlank()}, and it is what the
+     * blank-2xx cache guard in {@link #execute(HttpRequest, boolean)} keys on. Scanning bytes is
+     * exact rather than approximate: UTF-8 encodes every ASCII code point as the single byte of the
+     * same value and every non-ASCII code point using bytes {@code >= 0x80}, so a byte in the ASCII
+     * range can never be part of a multi-byte character and one pass decides the question with no
+     * decoding and no allocation.
+     * </p>
+     *
+     * <p>
+     * It differs from {@code new String(aBody, UTF_8).isBlank()} in exactly one case: a body
+     * consisting <b>entirely</b> of non-ASCII Unicode whitespace (U+2028, say) counts as blank
+     * there and as non-blank here, so it stays cacheable. That is deliberate, and it is not the
+     * failure this guard exists to stop - Jackson parses ASCII-whitespace-only input to
+     * {@code MissingNode}, which is the silently-empty resource the guard was added for, whereas
+     * non-ASCII whitespace is not legal JSON and fails loudly with a parse error rather than being
+     * mistaken for an empty document.
+     * </p>
+     *
+     * @param aBody
+     *            the body bytes.
+     * @return {@code true} if the body is zero-length or contains only ASCII whitespace.
+     */
+    static boolean isBlank(byte[] aBody)
+    {
+        for (byte b : aBody)
+        {
+            // A negative byte has the high bit set, i.e. it is part of a multi-byte UTF-8
+            // character - never whitespace, and never confusable with an ASCII byte.
+            if (b < 0 || !Character.isWhitespace((char) b))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    /**
+     * Reads the response body as a string, returning a placeholder on failure. Used for error
+     * responses where the body is informational only.
+     *
+     * <p>
+     * This is the single shared copy for all clients (F-webapi-08 — it previously existed as two
+     * independent identical copies in {@code JsonApiClient} and {@code XmlApiClient}, which had
+     * already started to drift in coverage). The error-body read is transport-level, not
+     * format-level, so it lives here.
+     * </p>
+     *
+     * @param aResponse
+     *            the response whose body to read.
+     * @return the body as a UTF-8 string, {@code null} if there is no body, or a placeholder if
+     *         reading it fails.
+     */
+    protected static @Nullable String readBodySafe(HttpResponse aResponse)
+    {
+        // Read body() ONCE into a local: null-checking one call and dereferencing
+        // a second is what SpotBugs 4.10 flags as
+        // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE.
+        InputStream body = aResponse.body();
+        if (body == null)
+        {
+            return null;
+        }
+        try
+        {
+            return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        catch (IOException _)
+        {
+            return "(unable to read response body)";
+        }
     }
 
     // --- Request building helpers ---

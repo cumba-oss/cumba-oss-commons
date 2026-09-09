@@ -3,7 +3,6 @@ package net.cumba.web.api.cache;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -66,19 +65,45 @@ public class GzipFileApiCache extends FileApiCache
 
 
     @Override
-    protected Optional<String> readCacheFile(Path aCacheFile) throws IOException
+    protected Optional<byte[]> readCacheFile(Path aCacheFile) throws IOException
     {
         try (InputStream fis = Files.newInputStream(aCacheFile);
                 GZIPInputStream gis = new GZIPInputStream(fis))
         {
-            return Optional.of(new String(gis.readAllBytes(), StandardCharsets.UTF_8));
+            return Optional.of(gis.readAllBytes());
+        }
+    }
+
+
+    @Override
+    protected InputStream openCacheFileStream(Path aCacheFile) throws IOException
+    {
+        InputStream fis = Files.newInputStream(aCacheFile);
+        try
+        {
+            return new GZIPInputStream(fis);
+        }
+        catch (IOException aFailure)
+        {
+            // The GZIPInputStream constructor reads and validates the header, so it can fail after
+            // the file handle is open. Nothing else will ever see that handle, so close it here or
+            // it leaks for the lifetime of the JVM.
+            try
+            {
+                fis.close();
+            }
+            catch (IOException aCloseFailure)
+            {
+                aFailure.addSuppressed(aCloseFailure);
+            }
+            throw aFailure;
         }
     }
 
 
     @SuppressWarnings("PMD.EmptyCatchBlock")
     @Override
-    public void write(String aPath, String aContent)
+    public void write(String aPath, byte[] aContent)
     {
         Path tmp = null;
         try
@@ -90,7 +115,7 @@ public class GzipFileApiCache extends FileApiCache
             try (OutputStream fos = Files.newOutputStream(tmp);
                     GZIPOutputStream gos = new GZIPOutputStream(fos))
             {
-                gos.write(aContent.getBytes(StandardCharsets.UTF_8));
+                gos.write(aContent);
             }
             Files.move(tmp, cacheFile, StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING);

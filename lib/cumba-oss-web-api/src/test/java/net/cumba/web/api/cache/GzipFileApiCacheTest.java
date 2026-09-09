@@ -1,5 +1,7 @@
 package net.cumba.web.api.cache;
 
+import static net.cumba.web.api.cache.CacheBytes.bytes;
+import static net.cumba.web.api.cache.CacheBytes.text;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -60,7 +62,7 @@ class GzipFileApiCacheTest
         {
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
             String body = "{\"hello\":\"world\"}";
-            cache.write("/data", body);
+            cache.write("/data", bytes(body));
 
             Path cacheFile = tempDir.resolve(cache.toCacheFileName("/data"));
             assertTrue(Files.exists(cacheFile));
@@ -77,9 +79,9 @@ class GzipFileApiCacheTest
         void roundtripSmallString(@TempDir Path tempDir) throws IOException
         {
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
-            cache.write("/data", "hello");
+            cache.write("/data", bytes("hello"));
 
-            assertEquals("hello", cache.read("/data").orElse(null));
+            assertEquals("hello", cache.read("/data").map(CacheBytes::text).orElse(null));
         }
 
 
@@ -88,11 +90,11 @@ class GzipFileApiCacheTest
         {
             String repeated = "X".repeat(100_000);
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
-            cache.write("/big", repeated);
+            cache.write("/big", bytes(repeated));
 
-            Optional<String> result = cache.read("/big");
+            Optional<byte[]> result = cache.read("/big");
             assertTrue(result.isPresent());
-            assertEquals(repeated, result.get());
+            assertEquals(repeated, text(result.get()));
         }
 
 
@@ -102,9 +104,9 @@ class GzipFileApiCacheTest
             // ASCII-only multi-codepoint string to avoid encoding-source ambiguity
             String content = "Cafe Munchen Konig - 1234567890";
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
-            cache.write("/utf8", content);
+            cache.write("/utf8", bytes(content));
 
-            assertEquals(content, cache.read("/utf8").orElse(null));
+            assertEquals(content, cache.read("/utf8").map(CacheBytes::text).orElse(null));
         }
 
 
@@ -112,9 +114,9 @@ class GzipFileApiCacheTest
         void roundtripEmptyString(@TempDir Path tempDir) throws IOException
         {
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
-            cache.write("/empty", "");
+            cache.write("/empty", bytes(""));
 
-            assertEquals("", cache.read("/empty").orElse(null));
+            assertEquals("", cache.read("/empty").map(CacheBytes::text).orElse(null));
         }
 
 
@@ -123,7 +125,7 @@ class GzipFileApiCacheTest
         {
             String repeated = "abcdefghij".repeat(1000);
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
-            cache.write("/repeat", repeated);
+            cache.write("/repeat", bytes(repeated));
 
             Path cacheFile = tempDir.resolve(cache.toCacheFileName("/repeat"));
             long compressedSize = Files.size(cacheFile);
@@ -137,7 +139,7 @@ class GzipFileApiCacheTest
         {
             String body = "raw decompression test";
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
-            cache.write("/data", body);
+            cache.write("/data", bytes(body));
 
             Path cacheFile = tempDir.resolve(cache.toCacheFileName("/data"));
             try (var fis = Files.newInputStream(cacheFile); var gis = new GZIPInputStream(fis))
@@ -158,13 +160,13 @@ class GzipFileApiCacheTest
         {
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
             CacheEntry entry = new CacheEntry(201,
-                    Map.of("Content-Type", List.of("application/json")), "{\"a\":1}");
+                    Map.of("Content-Type", List.of("application/json")), bytes("{\"a\":1}"));
             cache.writeEntry("/data", entry);
 
             Optional<CacheEntry> got = cache.readEntry("/data");
             assertTrue(got.isPresent());
             assertEquals(201, got.get().statusCode());
-            assertEquals("{\"a\":1}", got.get().content());
+            assertEquals("{\"a\":1}", text(got.get().content()));
             assertEquals(List.of("application/json"), got.get().headers().get("Content-Type"));
         }
 
@@ -174,11 +176,11 @@ class GzipFileApiCacheTest
         {
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
             HttpRequest req = requestFor("/mdr/adam");
-            cache.put(req, new CacheEntry(200, Map.of(), "data"));
+            cache.put(req, new CacheEntry(200, Map.of(), bytes("data")));
 
             Optional<CacheEntry> got = cache.get(req);
             assertTrue(got.isPresent());
-            assertEquals("data", got.get().content());
+            assertEquals("data", text(got.get().content()));
         }
 
 
@@ -186,7 +188,8 @@ class GzipFileApiCacheTest
         void invalidateRemovesGzippedEntryAndMeta(@TempDir Path tempDir) throws IOException
         {
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json");
-            cache.writeEntry("/data", new CacheEntry(200, Map.of("X", List.of("y")), "body"));
+            cache.writeEntry("/data",
+                    new CacheEntry(200, Map.of("X", List.of("y")), bytes("body")));
             assertTrue(cache.invalidate("/data"));
 
             try (var stream = Files.list(tempDir))
@@ -233,7 +236,7 @@ class GzipFileApiCacheTest
         {
             CacheValidator reject = (_, _, _) -> false;
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json", reject);
-            cache.writeEntry("/data", new CacheEntry("content"));
+            cache.writeEntry("/data", new CacheEntry(bytes("content")));
 
             assertFalse(cache.readEntry("/data").isPresent());
         }
@@ -244,11 +247,12 @@ class GzipFileApiCacheTest
         {
             CacheValidator accept = (_, _, _) -> true;
             GzipFileApiCache cache = new GzipFileApiCache(tempDir, ".json", accept);
-            cache.writeEntry("/data", new CacheEntry(200, Map.of("X", List.of("v")), "content"));
+            cache.writeEntry("/data",
+                    new CacheEntry(200, Map.of("X", List.of("v")), bytes("content")));
 
             Optional<CacheEntry> got = cache.readEntry("/data");
             assertTrue(got.isPresent());
-            assertEquals("content", got.get().content());
+            assertEquals("content", text(got.get().content()));
             assertEquals(List.of("v"), got.get().headers().get("X"));
         }
     }

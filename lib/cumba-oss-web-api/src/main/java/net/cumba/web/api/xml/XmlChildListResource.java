@@ -3,6 +3,7 @@ package net.cumba.web.api.xml;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -15,6 +16,7 @@ import net.cumba.web.api.ApiArrayResource;
 import net.cumba.web.api.ApiResource;
 import org.jspecify.annotations.Nullable;
 import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
 /**
  * Read-only {@link ApiArrayResource} implementation backed by a list of DOM {@link Element} nodes.
@@ -158,7 +160,11 @@ public final class XmlChildListResource implements ApiArrayResource
     @Override
     public boolean isInt(int aIndex)
     {
-        return tryParseLong(safeGetText(aIndex)) != null;
+        // F-webapi-03: an integer that does not fit a Java int is not an int. Without the
+        // range check this predicate was byte-identical to isLong, and getInt then
+        // narrowed 2147483648 to -2147483648 silently.
+        Long val = tryParseLong(safeGetText(aIndex));
+        return val != null && val >= Integer.MIN_VALUE && val <= Integer.MAX_VALUE;
     }
 
 
@@ -166,7 +172,11 @@ public final class XmlChildListResource implements ApiArrayResource
     public OptionalInt getInt(int aIndex)
     {
         Long val = tryParseLong(safeGetText(aIndex));
-        return val != null ? OptionalInt.of(val.intValue()) : OptionalInt.empty();
+        if (val == null || val < Integer.MIN_VALUE || val > Integer.MAX_VALUE)
+        {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(val.intValue());
     }
 
 
@@ -270,8 +280,11 @@ public final class XmlChildListResource implements ApiArrayResource
         {
             return false;
         }
-        // An element is considered an "object" if it has attributes or child elements
-        return elem.hasAttributes() || elem.getChildNodes().getLength() > 0;
+        // An element is considered an "object" if it has child elements or attributes
+        // beyond xmlns declarations. Delegates to the same predicate as
+        // XmlElementResource.isObject so the two implementations cannot disagree
+        // (F-webapi-07 — the old inline check counted text nodes as children).
+        return XmlElementResource.isComplexElement(elem);
     }
 
 
@@ -310,10 +323,19 @@ public final class XmlChildListResource implements ApiArrayResource
         {
             return Collections.emptyList();
         }
-        // Collect text content of child elements
-        XmlElementResource wrapper = new XmlElementResource(elem);
-        return wrapper.getStringList(
-                elem.getLocalName() != null ? elem.getLocalName() : elem.getTagName());
+        // Collect the text content of ALL child elements, name-independently. The old
+        // code passed the element's OWN name to findChildElements, which returned []
+        // for every realistic document (F-webapi-02).
+        List<String> result = new ArrayList<>();
+        NodeList children = elem.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++)
+        {
+            if (children.item(i) instanceof Element childElem)
+            {
+                result.add(childElem.getTextContent());
+            }
+        }
+        return Collections.unmodifiableList(result);
     }
 
 

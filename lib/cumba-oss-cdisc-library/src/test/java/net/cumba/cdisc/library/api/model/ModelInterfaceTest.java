@@ -331,7 +331,7 @@ class ModelInterfaceTest
     void cdashScenarioFields()
     {
         CdashScenario s = create("""
-                {"ordinal":1,"domain":"AE","domainName":"Adverse Events",
+                {"ordinal":"1","domain":"AE","domainName":"Adverse Events",
                  "scenario":"Scenario 1","fields":[{"name":"AETERM"}]}
                 """, CdashScenario.class);
         assertEquals("AE", s.domain().orElse(null));
@@ -393,7 +393,8 @@ class ModelInterfaceTest
                                                       "sendig":[]}},
                                    "data-collection":{"_links":{"cdash":[],"cdashig":[]}},
                                    "terminology":{"_links":{"packages":[]}},
-                                   "qrs":{"_links":{"instrument":[]}}}}
+                                   "qrs":{"_links":{"instruments":[
+                                       {"href":"/mdr/qrs/instruments/AIMS01/versions/2-0"}]}}}}
                         """,
                 Products.class);
         assertEquals(1, p.adamLinks().size());
@@ -402,8 +403,9 @@ class ModelInterfaceTest
         assertEquals(1, p.sdtmigLinks().size());
         assertTrue(p.sendigLinks().isEmpty());
         assertTrue(p.cdashLinks().isEmpty());
-        // allLinks should combine all groups
-        assertEquals(3, p.allLinks().size());
+        assertEquals(1, p.qrsLinks().size());
+        // allLinks should combine all groups, the QRS instruments included
+        assertEquals(4, p.allLinks().size());
     }
 
 
@@ -414,6 +416,169 @@ class ModelInterfaceTest
         assertTrue(p.adamLinks().isEmpty());
         assertTrue(p.sdtmLinks().isEmpty());
         assertTrue(p.allLinks().isEmpty());
+    }
+
+
+    /**
+     * BT-P-07/08/09 — {@code terminologyLinks}, {@code qrsLinks} and {@code allLinks} against the
+     * relation names the LIVE API actually uses.
+     *
+     * <p>
+     * The fixture below is transcribed from a real captured {@code GET /mdr/products} response
+     * (<a href="file:///data/cdisc.metadata.library-cache/api_mdr_products.json.gz">the CDISC
+     * Library response cache</a>), not from {@code Products}. That provenance is the whole point:
+     * the previous fixture carried the same key the code did — the singular {@code instrument} — so
+     * it pinned {@code qrsLinks()} to itself and could never see that the live response spells the
+     * relation {@code instruments}, plural. The captured response carries nine QRS instruments
+     * under {@code _links.qrs._links.instruments}; two of them are reproduced here verbatim.
+     * </p>
+     */
+    @Test
+    void productsQrsAndTerminologyMatchTheLiveResponseShape()
+    {
+        Products p = create(
+                """
+                        {"_links":{"terminology":{"_links":{"packages":[
+                                       {"href":"/mdr/ct/packages/adamct-2014-09-26",
+                                        "title":"ADaM Controlled Terminology Package 19 Effective 2014-09-26",
+                                        "type":"Terminology"},
+                                       {"href":"/mdr/ct/packages/adamct-2015-12-18",
+                                        "title":"ADaM Controlled Terminology Package 24 Effective 2015-12-18",
+                                        "type":"Terminology"}]}},
+                                   "qrs":{"_links":{"instruments":[
+                                       {"href":"/mdr/qrs/instruments/AIMS01/versions/2-0",
+                                        "title":"Abnormal Involuntary Movement Scale Supplement v2.0",
+                                        "type":"QRS Instrument"},
+                                       {"href":"/mdr/qrs/instruments/SIXMW1/versions/1-0",
+                                        "title":"6 Minute Walk Test Supplement v1.0",
+                                        "type":"QRS Instrument"}],
+                                                  "self":{"href":"/mdr/products/QrsInstrument"}}}}}
+                        """,
+                Products.class);
+
+        assertEquals(
+                List.of("/mdr/ct/packages/adamct-2014-09-26", "/mdr/ct/packages/adamct-2015-12-18"),
+                hrefs(p.terminologyLinks()));
+        assertEquals(List.of("/mdr/qrs/instruments/AIMS01/versions/2-0",
+                "/mdr/qrs/instruments/SIXMW1/versions/1-0"), hrefs(p.qrsLinks()));
+        // allLinks must fold the QRS instruments in; it silently dropped all nine before the fix.
+        assertEquals(4, p.allLinks().size());
+    }
+
+
+    /**
+     * The singular {@code instrument} is NOT the live relation name, on either products type. This
+     * pins the plural spelling from the other side, so a revert to the singular key cannot pass by
+     * making a fixture agree with it.
+     */
+    @Test
+    void productsIgnoreTheSingularInstrumentRelation()
+    {
+        Products p = create(
+                """
+                        {"_links":{"qrs":{"_links":{"instrument":[{"href":"/mdr/qrs/instruments/AIMS01"}]}}}}
+                        """,
+                Products.class);
+        assertEquals(List.of(), p.qrsLinks());
+        assertEquals(List.of(), p.allLinks());
+
+        ProductGroup pg = create("""
+                {"_links":{"instrument":[{"href":"/mdr/qrs/instruments/AIMS01"}]}}
+                """, ProductGroup.class);
+        assertEquals(List.of(), pg.qrsLinks());
+    }
+
+
+    /** The plural relation, on {@code ProductGroup} as served by {@code /mdr/products/{group}}. */
+    @Test
+    void productGroupExposesTheLiveQrsRelation()
+    {
+        ProductGroup pg = create("""
+                {"_links":{"instruments":[{"href":"/mdr/qrs/instruments/AIMS01/versions/2-0"},
+                                          {"href":"/mdr/qrs/instruments/SIXMW1/versions/1-0"}],
+                           "self":{"href":"/mdr/products/QrsInstrument"}}}
+                """, ProductGroup.class);
+        assertEquals(List.of("/mdr/qrs/instruments/AIMS01/versions/2-0",
+                "/mdr/qrs/instruments/SIXMW1/versions/1-0"), hrefs(pg.qrsLinks()));
+    }
+
+
+    /**
+     * F-cdisc-library-06 — the {@code integrated} group reaches {@code allLinks()}.
+     *
+     * <p>
+     * The fixture is cut VERBATIM from a real captured {@code GET /mdr/products} response
+     * (<a href="file:///data/cdisc.metadata.library-cache/api_mdr_products.json.gz">the CDISC
+     * Library response cache</a>), not from {@code Products}: the group is spelled
+     * {@code integrated}, its relation {@code tig}, and the relation's array holds FIVE entries —
+     * four link objects and a trailing integrated-standard descriptor with {@code self} /
+     * {@code standards} and no {@code href}. Measured over that same response, {@code integrated}
+     * is the ONLY group whose relation array carries such a non-link entry.
+     * </p>
+     */
+    @Test
+    void productsIntegratedGroupMatchesTheLiveResponseShape()
+    {
+        Products p = create("""
+                {"_links":{"integrated":{"_links":{
+                               "self":{"href":"/mdr/products/Integrated",
+                                       "title":"Product Group Integrated Standards",
+                                       "type":"CDISC Library Product Group"},
+                               "tig":[
+                               {"href":"/mdr/integrated/tig/1-0/adam",
+                                "title":"ADaM for TIG v1.0","type":"Implementation Guide"},
+                               {"href":"/mdr/integrated/tig/1-0/cdash",
+                                "title":"CDASH for TIG v1.0","type":"Implementation Guide"},
+                               {"href":"/mdr/integrated/tig/1-0/sdtm",
+                                "title":"SDTM for TIG v1.0","type":"Implementation Guide"},
+                               {"href":"/mdr/integrated/tig/1-0/send",
+                                "title":"SEND for TIG v1.0","type":"Implementation Guide"},
+                               {"self":{"href":"/mdr/integrated/tig/1-0",
+                                        "title":"Tobacco Implementation Guide Version 1.0",
+                                        "type":"Integrated Standard"},
+                                "standards":{
+                                    "adam":{"href":"/mdr/integrated/tig/1-0/adam"},
+                                    "cdash":{"href":"/mdr/integrated/tig/1-0/cdash"},
+                                    "sdtm":{"href":"/mdr/integrated/tig/1-0/sdtm"},
+                                    "send":{"href":"/mdr/integrated/tig/1-0/send"}}}]}}}}
+                """, Products.class);
+
+        List<String> tig = List.of("/mdr/integrated/tig/1-0/adam", "/mdr/integrated/tig/1-0/cdash",
+                "/mdr/integrated/tig/1-0/sdtm", "/mdr/integrated/tig/1-0/send");
+        assertEquals(tig, hrefs(p.integratedLinks()));
+        assertEquals("ADaM for TIG v1.0", p.integratedLinks().get(0).title().orElse(null));
+        // allLinks() folds the group in; it omitted the whole integrated group before the fix.
+        assertEquals(tig, hrefs(p.allLinks()));
+    }
+
+
+    /**
+     * The {@code integrated} group is read by its own name and relation, so a group or relation
+     * that is merely adjacent contributes nothing. Pins both names from the other side.
+     */
+    @Test
+    void productsIgnoreAnAdjacentIntegratedRelation()
+    {
+        Products wrongRelation = create(
+                """
+                        {"_links":{"integrated":{"_links":{"tigs":[{"href":"/mdr/integrated/tig/1-0/adam"}]}}}}
+                        """,
+                Products.class);
+        assertEquals(List.of(), wrongRelation.integratedLinks());
+        assertEquals(List.of(), wrongRelation.allLinks());
+
+        Products wrongGroup = create("""
+                {"_links":{"integrated-standards":{"_links":{"tig":[
+                    {"href":"/mdr/integrated/tig/1-0/adam"}]}}}}
+                """, Products.class);
+        assertEquals(List.of(), wrongGroup.integratedLinks());
+        assertEquals(List.of(), wrongGroup.allLinks());
+    }
+
+
+    private static List<String> hrefs(List<net.cumba.web.api.Link> links)
+    {
+        return links.stream().map(l -> l.href().orElse(null)).toList();
     }
 
 
@@ -436,7 +601,7 @@ class ModelInterfaceTest
         ProductGroup pg = create("""
                 {"_links":{"adam":[{"href":"/a"}],"sdtm":[],"sdtmig":[],
                            "sendig":[],"cdash":[],"cdashig":[],
-                           "packages":[],"instrument":[]}}
+                           "packages":[],"instruments":[]}}
                 """, ProductGroup.class);
         assertEquals(1, pg.adamLinks().size());
     }
@@ -464,9 +629,9 @@ class ModelInterfaceTest
     void qrsItemFields()
     {
         QrsItem qi = create("""
-                {"ordinal":1,"label":"How often?","questionText":"How often?","itemCode":"Q1"}
+                {"ordinal":"1","label":"How often?","questionText":"How often?","itemCode":"Q1"}
                 """, QrsItem.class);
-        assertEquals(1, qi.ordinal().orElse(-1));
+        assertEquals("1", qi.ordinal().orElse(null));
         assertEquals("Q1", qi.itemCode().orElse(null));
     }
 
@@ -475,10 +640,37 @@ class ModelInterfaceTest
     void qrsResponseFields()
     {
         QrsResponse qr = create("""
-                {"ordinal":0,"isStandardResultNumeric":true}
+                {"ordinal":"1","isStandardResultNumeric":true}
                 """, QrsResponse.class);
-        assertEquals(0, qr.ordinal().orElse(-1));
+        assertEquals("1", qr.ordinal().orElse(null));
         assertTrue(qr.isStandardResultNumeric().orElse(false));
+    }
+
+
+    /**
+     * F-cdisc-library-05 — {@code ordinal} is served as a JSON STRING, on every DTO that has one.
+     *
+     * <p>
+     * Measured over the CDISC Library response cache
+     * (<a href="file:///data/cdisc.metadata.library-cache">861 cached responses</a>): 37,946
+     * {@code ordinal} values, every one a JSON string, zero JSON numbers. {@code QrsItem},
+     * {@code QrsResponse} and {@code CdashScenario} read it through {@code getInt} until
+     * 2026-09-08, and {@code getInt} requires {@code JsonNode.isNumber()} — so on the live shape
+     * they returned EMPTY, silently, for every real response. The nine sibling DTOs already read it
+     * as a {@code String}; this pins all twelve to the served shape.
+     * </p>
+     */
+    @Test
+    void ordinalIsReadFromTheJsonStringTheApiServes()
+    {
+        assertEquals("1", create("{\"ordinal\":\"1\"}", QrsItem.class).ordinal().orElse(null));
+        assertEquals("2", create("{\"ordinal\":\"2\"}", QrsResponse.class).ordinal().orElse(null));
+        assertEquals("3",
+                create("{\"ordinal\":\"3\"}", CdashScenario.class).ordinal().orElse(null));
+
+        assertTrue(create("{}", QrsItem.class).ordinal().isEmpty());
+        assertTrue(create("{}", QrsResponse.class).ordinal().isEmpty());
+        assertTrue(create("{}", CdashScenario.class).ordinal().isEmpty());
     }
 
     // --- Rules ---

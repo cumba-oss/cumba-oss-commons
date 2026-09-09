@@ -68,6 +68,6 @@ public interface ProductGroup extends ApiResource
     /** Returns links to QRS instruments. */
     default List<Link> qrsLinks()
     {
-        return getLinks("instrument");
+        return getLinks("instruments");
     }
 }
