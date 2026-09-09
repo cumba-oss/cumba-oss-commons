@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.Optional;
 import net.cumba.cdisc.library.api.model.adam.AdamDataStructure;
 import net.cumba.cdisc.library.api.model.adam.AdamProduct;
 import net.cumba.cdisc.library.api.model.adam.AdamVariable;
@@ -40,6 +41,7 @@ import net.cumba.cdisc.library.api.model.rules.RuleCondition;
 import net.cumba.cdisc.library.api.model.rules.RuleExecutability;
 import net.cumba.cdisc.library.api.model.rules.RuleMap;
 import net.cumba.cdisc.library.api.model.rules.RuleOperation;
+import net.cumba.cdisc.library.api.model.rules.RuleScope;
 import net.cumba.cdisc.library.api.model.rules.RuleScopeFilter;
 import net.cumba.cdisc.library.api.model.rules.RuleSensitivity;
 import net.cumba.cdisc.library.api.model.rules.RuleType;
@@ -49,6 +51,7 @@ import net.cumba.cdisc.library.api.model.sdtm.SdtmProduct;
 import net.cumba.cdisc.library.api.model.sdtm.SdtmVariable;
 import net.cumba.cdisc.library.api.model.search.SearchResult;
 import net.cumba.cdisc.library.api.model.search.SearchScopes;
+import net.cumba.web.api.Link;
 import net.cumba.web.api.json.JsonNodeResource;
 import org.junit.jupiter.api.Test;
 
@@ -78,6 +81,8 @@ class ModelInterfaceTest
     {
         AdamProduct p = create("""
                 {"name":"ADaM","label":"ADaM 2.1","version":"2-1",
+                 "description":"Analysis Data Model foundational standard",
+                 "source":"CDISC ADaM Team",
                  "effectiveDate":"2023-01-01","registrationStatus":"Final",
                  "dataStructures":[{"name":"ADSL"}],
                  "_links":{"priorVersion":{"href":"/mdr/adam/adam-1-1"}}}
@@ -89,6 +94,9 @@ class ModelInterfaceTest
         assertEquals(1, p.dataStructures().size());
         assertEquals("ADSL", p.dataStructures().get(0).name().orElse(null));
         assertTrue(p.priorVersionLink().isPresent());
+        assertEquals("Final", p.registrationStatus().orElse(null));
+        assertEquals("Analysis Data Model foundational standard", p.description().orElse(null));
+        assertEquals("CDISC ADaM Team", p.source().orElse(null));
     }
 
 
@@ -106,6 +114,12 @@ class ModelInterfaceTest
         assertEquals("BDS", ds.className().orElse(null));
         assertEquals(1, ds.analysisVariableSets().size());
         assertTrue(ds.parentProductLink().isPresent());
+        assertEquals("Subject Level", ds.label().orElse(null));
+        assertEquals("desc", ds.description().orElse(null));
+        assertEquals("Final", ds.status().orElse(null));
+        AdamDataStructure withSubClass = create("{\"subClass\":\"BDS-SUB\"}",
+                AdamDataStructure.class);
+        assertEquals("BDS-SUB", withSubClass.subClass().orElse(null));
     }
 
 
@@ -114,15 +128,21 @@ class ModelInterfaceTest
     {
         AdamVariable v = create("""
                 {"ordinal":"1","name":"USUBJID","label":"Subject ID",
+                 "description":"Unique identifier for a subject",
                  "simpleDatatype":"Char","core":"Req",
                  "valueList":["A","B"],
-                 "_links":{"codelist":{"href":"/mdr/ct/codelists/C123"}}}
+                 "_links":{"codelist":{"href":"/mdr/ct/codelists/C123"},
+                           "parentProduct":{"href":"/mdr/adam/av-parent-product"}}}
                 """, AdamVariable.class);
         assertEquals("1", v.ordinal().orElse("0"));
         assertEquals("USUBJID", v.name().orElse(null));
         assertEquals("Char", v.simpleDatatype().orElse(null));
         assertEquals(List.of("A", "B"), v.valueList());
         assertTrue(v.codelistLink().isPresent());
+        assertEquals("Subject ID", v.label().orElse(null));
+        assertEquals("Req", v.core().orElse(null));
+        assertEquals("Unique identifier for a subject", v.description().orElse(null));
+        assertEquals("/mdr/adam/av-parent-product", href(v.parentProductLink()));
     }
 
 
@@ -131,10 +151,15 @@ class ModelInterfaceTest
     {
         AdamVariableSet vs = create("""
                 {"ordinal":1,"name":"VS1","label":"Variable Set 1",
-                 "analysisVariables":[{"name":"VAR1"},{"name":"VAR2"}]}
+                 "analysisVariables":[{"name":"VAR1"},{"name":"VAR2"}],
+                 "_links":{"parentProduct":{"href":"/mdr/adam/avs-parent-product"}}}
                 """, AdamVariableSet.class);
         assertEquals("VS1", vs.name().orElse(null));
         assertEquals(2, vs.analysisVariables().size());
+        assertEquals("Variable Set 1", vs.label().orElse(null));
+        assertEquals("/mdr/adam/avs-parent-product", href(vs.parentProductLink()));
+        AdamVariableSet stringOrdinal = create("{\"ordinal\":\"7\"}", AdamVariableSet.class);
+        assertEquals("7", stringOrdinal.ordinal().orElse(null));
     }
 
     // --- SDTM ---
@@ -145,12 +170,24 @@ class ModelInterfaceTest
     {
         SdtmProduct p = create("""
                 {"name":"SDTM","label":"SDTM 2.0","version":"2-0",
+                 "description":"Study Data Tabulation Model",
+                 "source":"CDISC SDTM Team","effectiveDate":"2021-11-29",
+                 "registrationStatus":"Final SDTM",
                  "classes":[{"name":"Events"}],
+                 "datasets":[{"name":"AE"},{"name":"DM"}],
                  "_links":{"model":{"href":"/mdr/sdtm/2-0"}}}
                 """, SdtmProduct.class);
         assertEquals("SDTM", p.name().orElse(null));
         assertEquals(1, p.classes().size());
         assertTrue(p.modelLink().isPresent());
+        assertEquals("SDTM 2.0", p.label().orElse(null));
+        assertEquals("2-0", p.version().orElse(null));
+        assertEquals("Study Data Tabulation Model", p.description().orElse(null));
+        assertEquals("CDISC SDTM Team", p.source().orElse(null));
+        assertEquals("2021-11-29", p.effectiveDate().orElse(null));
+        assertEquals("Final SDTM", p.registrationStatus().orElse(null));
+        assertEquals(2, p.datasets().size());
+        assertEquals("DM", p.datasets().get(1).name().orElse(null));
     }
 
 
@@ -159,14 +196,24 @@ class ModelInterfaceTest
     {
         SdtmDataset ds = create("""
                 {"ordinal":1,"name":"AE","label":"Adverse Events",
+                 "description":"Records of adverse events reported",
                  "datasetStructure":"One record per event","status":"Final",
                  "datasetVariables":[{"name":"AETERM"}],
-                 "_links":{"parentClass":{"href":"/mdr/sdtm/classes/Events"}}}
+                 "_links":{"parentClass":{"href":"/mdr/sdtm/classes/Events"},
+                           "parentProduct":{"href":"/mdr/sdtmig/ds-parent-product"},
+                           "modelDataset":{"href":"/mdr/sdtm/ds-model-dataset"}}}
                 """, SdtmDataset.class);
         assertEquals("AE", ds.name().orElse(null));
         assertEquals("One record per event", ds.datasetStructure().orElse(null));
         assertEquals(1, ds.datasetVariables().size());
         assertTrue(ds.parentClassLink().isPresent());
+        assertEquals("Adverse Events", ds.label().orElse(null));
+        assertEquals("Final", ds.status().orElse(null));
+        assertEquals("Records of adverse events reported", ds.description().orElse(null));
+        assertEquals("/mdr/sdtmig/ds-parent-product", href(ds.parentProductLink()));
+        assertEquals("/mdr/sdtm/ds-model-dataset", href(ds.modelDatasetLink()));
+        SdtmDataset stringOrdinal = create("{\"ordinal\":\"3\"}", SdtmDataset.class);
+        assertEquals("3", stringOrdinal.ordinal().orElse(null));
     }
 
 
@@ -191,15 +238,28 @@ class ModelInterfaceTest
     void sdtmClassFields()
     {
         SdtmClass cls = create("""
-                {"ordinal":1,"name":"Events","label":"Events",
+                {"ordinal":1,"name":"Events","label":"General Observation Events",
+                 "description":"Observations describing occurrences in time",
                  "classVariables":[{"name":"DOMAIN"}],
                  "datasets":[{"name":"AE"}],
-                 "_links":{"subclasses":[{"href":"/s1"}]}}
+                 "_links":{"subclasses":[{"href":"/s1"}],
+                           "parentProduct":{"href":"/mdr/sdtm/cls-parent-product"},
+                           "parentClass":{"href":"/mdr/sdtm/cls-parent-class"},
+                           "modelClass":{"href":"/mdr/sdtm/cls-model-class"}}}
                 """, SdtmClass.class);
         assertEquals("Events", cls.name().orElse(null));
         assertEquals(1, cls.classVariables().size());
         assertEquals(1, cls.datasets().size());
         assertEquals(1, cls.subclassLinks().size());
+        assertEquals("General Observation Events", cls.label().orElse(null));
+        assertEquals("Observations describing occurrences in time", cls.description().orElse(null));
+        assertEquals("/mdr/sdtm/cls-parent-product", href(cls.parentProductLink()));
+        assertEquals("/mdr/sdtm/cls-parent-class", href(cls.parentClassLink()));
+        assertEquals("/mdr/sdtm/cls-model-class", href(cls.modelClassLink()));
+        // ordinal() is Optional<String>; a numeric fixture field will not coerce, so the
+        // string wire form gets its own resource rather than rewriting the one above.
+        SdtmClass stringOrdinal = create("{\"ordinal\":\"4\"}", SdtmClass.class);
+        assertEquals("4", stringOrdinal.ordinal().orElse(null));
     }
 
     // --- CT ---
@@ -209,12 +269,21 @@ class ModelInterfaceTest
     void ctPackageFields()
     {
         CtPackage pkg = create("""
-                {"name":"sdtmct-2023-12-15","effectiveDate":"2023-12-15","version":"2023-12-15",
+                {"name":"sdtmct-2023-12-15","effectiveDate":"2023-12-15","version":"ct-2023-12-15",
+                 "label":"SDTM CT package label","source":"CDISC Terminology Team",
+                 "description":"Controlled terminology for SDTM submissions",
+                 "registrationStatus":"Final CT",
                  "codelists":[{"conceptId":"C66729","name":"AGE UNIT"}]}
                 """, CtPackage.class);
         assertEquals("sdtmct-2023-12-15", pkg.name().orElse(null));
         assertEquals(1, pkg.codelists().size());
         assertEquals("C66729", pkg.codelists().get(0).conceptId().orElse(null));
+        assertEquals("2023-12-15", pkg.effectiveDate().orElse(null));
+        assertEquals("ct-2023-12-15", pkg.version().orElse(null));
+        assertEquals("SDTM CT package label", pkg.label().orElse(null));
+        assertEquals("Controlled terminology for SDTM submissions", pkg.description().orElse(null));
+        assertEquals("CDISC Terminology Team", pkg.source().orElse(null));
+        assertEquals("Final CT", pkg.registrationStatus().orElse(null));
     }
 
 
@@ -225,13 +294,17 @@ class ModelInterfaceTest
                 {"conceptId":"C66729","extensible":true,"name":"AGE UNIT",
                  "submissionValue":"AGEU","definition":"Units for age",
                  "synonyms":["syn1"],
-                 "terms":[{"submissionValue":"YEARS"}]}
+                 "terms":[{"submissionValue":"YEARS"}],
+                 "_links":{"rootItem":{"href":"/mdr/root/ct/codelists/C66729"}}}
                 """, CtCodelist.class);
         assertEquals("C66729", cl.conceptId().orElse(null));
         assertTrue(cl.extensible().orElse(false));
         assertEquals("AGEU", cl.submissionValue().orElse(null));
         assertEquals(List.of("syn1"), cl.synonyms());
         assertEquals(1, cl.terms().size());
+        assertEquals("AGE UNIT", cl.name().orElse(null));
+        assertEquals("Units for age", cl.definition().orElse(null));
+        assertEquals("/mdr/root/ct/codelists/C66729", href(cl.rootItemLink()));
     }
 
 
@@ -275,11 +348,15 @@ class ModelInterfaceTest
         CtTerm t = create("""
                 {"conceptId":"C29848","submissionValue":"YEARS",
                  "definition":"A period of time","preferredTerm":"Year",
-                 "synonyms":["yr","year"]}
+                 "synonyms":["yr","year"],
+                 "_links":{"rootItem":{"href":"/mdr/root/ct/terms/C29848"}}}
                 """, CtTerm.class);
         assertEquals("C29848", t.conceptId().orElse(null));
         assertEquals("YEARS", t.submissionValue().orElse(null));
         assertEquals(List.of("yr", "year"), t.synonyms());
+        assertEquals("A period of time", t.definition().orElse(null));
+        assertEquals("Year", t.preferredTerm().orElse(null));
+        assertEquals("/mdr/root/ct/terms/C29848", href(t.rootItemLink()));
     }
 
 
@@ -299,13 +376,23 @@ class ModelInterfaceTest
     void cdashProductFields()
     {
         CdashProduct p = create("""
-                {"name":"CDASH","version":"2-2",
+                {"name":"CDASH","version":"2-2","label":"CDASHIG 2.2 label",
+                 "description":"Clinical Data Acquisition Standards Harmonization",
+                 "source":"CDISC CDASH Team","effectiveDate":"2022-09-27",
+                 "registrationStatus":"Final CDASH",
                  "classes":[{"name":"Events"}],
                  "domains":[{"name":"AE"}]}
                 """, CdashProduct.class);
         assertEquals("CDASH", p.name().orElse(null));
         assertEquals(1, p.classes().size());
         assertEquals(1, p.domains().size());
+        assertEquals("2-2", p.version().orElse(null));
+        assertEquals("CDASHIG 2.2 label", p.label().orElse(null));
+        assertEquals("Clinical Data Acquisition Standards Harmonization",
+                p.description().orElse(null));
+        assertEquals("CDISC CDASH Team", p.source().orElse(null));
+        assertEquals("2022-09-27", p.effectiveDate().orElse(null));
+        assertEquals("Final CDASH", p.registrationStatus().orElse(null));
     }
 
 
@@ -332,11 +419,17 @@ class ModelInterfaceTest
     {
         CdashScenario s = create("""
                 {"ordinal":"1","domain":"AE","domainName":"Adverse Events",
-                 "scenario":"Scenario 1","fields":[{"name":"AETERM"}]}
+                 "scenario":"Scenario 1","fields":[{"name":"AETERM"}],
+                 "_links":{"parentProduct":{"href":"/mdr/cdash/sc-parent-product"},
+                           "parentClass":{"href":"/mdr/cdash/sc-parent-class"}}}
                 """, CdashScenario.class);
         assertEquals("AE", s.domain().orElse(null));
         assertEquals("Scenario 1", s.scenario().orElse(null));
         assertEquals(1, s.fields().size());
+        assertEquals("1", s.ordinal().orElse(null));
+        assertEquals("Adverse Events", s.domainName().orElse(null));
+        assertEquals("/mdr/cdash/sc-parent-product", href(s.parentProductLink()));
+        assertEquals("/mdr/cdash/sc-parent-class", href(s.parentClassLink()));
     }
 
     // --- Meta ---
@@ -409,13 +502,61 @@ class ModelInterfaceTest
     }
 
 
+    /**
+     * BT-P-01..06 case (a): every unblocked group carries two links with invented, distinct hrefs,
+     * so an empty or truncated list fails. The group names and relation names are the ones the
+     * pre-existing {@code productsExtractsNestedLinks} fixture already pinned; nothing here is
+     * transcribed from {@code Products}. {@code terminologyLinks} / {@code qrsLinks} /
+     * {@code allLinks} are covered by
+     * {@link #productsQrsAndTerminologyMatchTheLiveResponseShape()}, whose fixture comes from a
+     * real captured response rather than from the code (F-cdisc-library-03).
+     */
     @Test
-    void productsReturnsEmptyOnMissingStructure()
+    void productsExposesEveryLinkOfEachGroup()
     {
-        Products p = create("{}", Products.class);
-        assertTrue(p.adamLinks().isEmpty());
-        assertTrue(p.sdtmLinks().isEmpty());
-        assertTrue(p.allLinks().isEmpty());
+        Products p = create("""
+                {"_links":{"data-analysis":{"_links":{"adam":[{"href":"/p/adam-1"},
+                                                              {"href":"/p/adam-2"}]}},
+                           "data-tabulation":{"_links":{"sdtm":[{"href":"/p/sdtm-1"},
+                                                                {"href":"/p/sdtm-2"}],
+                                              "sdtmig":[{"href":"/p/sdtmig-1"},
+                                                        {"href":"/p/sdtmig-2"}],
+                                              "sendig":[{"href":"/p/sendig-1"},
+                                                        {"href":"/p/sendig-2"}]}},
+                           "data-collection":{"_links":{"cdash":[{"href":"/p/cdash-1"},
+                                                                 {"href":"/p/cdash-2"}],
+                                              "cdashig":[{"href":"/p/cdashig-1"},
+                                                         {"href":"/p/cdashig-2"}]}}}}
+                """, Products.class);
+        assertEquals(List.of("/p/adam-1", "/p/adam-2"), hrefs(p.adamLinks()));
+        assertEquals(List.of("/p/sdtm-1", "/p/sdtm-2"), hrefs(p.sdtmLinks()));
+        assertEquals(List.of("/p/sdtmig-1", "/p/sdtmig-2"), hrefs(p.sdtmigLinks()));
+        assertEquals(List.of("/p/sendig-1", "/p/sendig-2"), hrefs(p.sendigLinks()));
+        assertEquals(List.of("/p/cdash-1", "/p/cdash-2"), hrefs(p.cdashLinks()));
+        assertEquals(List.of("/p/cdashig-1", "/p/cdashig-2"), hrefs(p.cdashigLinks()));
+    }
+
+
+    /**
+     * BT-P-01..06 case (c): {@code _links} present but the group is absent, and case (d): the group
+     * present but the relation absent. Both must yield an empty list — paired with the case (a)
+     * test above, this pins the group name and the relation name separately.
+     */
+    @Test
+    void productsReturnsEmptyWhenGroupOrRelationIsAbsent()
+    {
+        Products groupAbsent = create("{\"_links\":{}}", Products.class);
+        assertEquals(List.of(), groupAbsent.adamLinks());
+        assertEquals(List.of(), groupAbsent.sdtmLinks());
+
+        Products relationAbsent = create("""
+                {"_links":{"data-analysis":{"_links":{"someOtherRelation":[{"href":"/p/x"}]}},
+                           "data-tabulation":{"_links":{"someOtherRelation":[{"href":"/p/y"}]}}}}
+                """, Products.class);
+        assertEquals(List.of(), relationAbsent.adamLinks());
+        assertEquals(List.of(), relationAbsent.sdtmLinks());
+        assertEquals(List.of(), relationAbsent.sdtmigLinks());
+        assertEquals(List.of(), relationAbsent.sendigLinks());
     }
 
 
@@ -582,6 +723,23 @@ class ModelInterfaceTest
     }
 
 
+    /** The href behind a single relation, or {@code null} when the relation is absent. */
+    private static String href(Optional<Link> link)
+    {
+        return link.flatMap(Link::href).orElse(null);
+    }
+
+
+    @Test
+    void productsReturnsEmptyOnMissingStructure()
+    {
+        Products p = create("{}", Products.class);
+        assertTrue(p.adamLinks().isEmpty());
+        assertTrue(p.sdtmLinks().isEmpty());
+        assertTrue(p.allLinks().isEmpty());
+    }
+
+
     @Test
     void lastUpdatedFields()
     {
@@ -629,10 +787,12 @@ class ModelInterfaceTest
     void qrsItemFields()
     {
         QrsItem qi = create("""
-                {"ordinal":"1","label":"How often?","questionText":"How often?","itemCode":"Q1"}
+                {"ordinal":"1","label":"PHQ-9 item 1","questionText":"How often?","itemCode":"Q1"}
                 """, QrsItem.class);
         assertEquals("1", qi.ordinal().orElse(null));
         assertEquals("Q1", qi.itemCode().orElse(null));
+        assertEquals("PHQ-9 item 1", qi.label().orElse(null));
+        assertEquals("How often?", qi.questionText().orElse(null));
     }
 
 
@@ -772,6 +932,55 @@ class ModelInterfaceTest
     }
 
 
+    /**
+     * The two ADaM scope accessors the coreJ engine reads. {@code dataStructures()} resolves two
+     * spellings: upstream CORE rules author the key with a space, the engine's canonical form uses
+     * an underscore, and the spaced form wins when both are present.
+     */
+    @Test
+    void ruleScopeAdamScopeAccessors()
+    {
+        RuleScope spaced = create("""
+                {"Data Structures":{"Include":["ADSL"]},"Subclasses":{"Include":["BDS"]}}
+                """, RuleScope.class);
+        assertEquals(List.of("ADSL"), spaced.dataStructures().orElseThrow().include());
+        assertEquals(List.of("BDS"), spaced.subclasses().orElseThrow().include());
+
+        RuleScope underscored = create("""
+                {"Data_Structures":{"Include":["ADAE"]}}
+                """, RuleScope.class);
+        assertEquals(List.of("ADAE"), underscored.dataStructures().orElseThrow().include());
+
+        RuleScope both = create("""
+                {"Data Structures":{"Include":["SPACED"]},"Data_Structures":{"Include":["UNDER"]}}
+                """, RuleScope.class);
+        assertEquals(List.of("SPACED"), both.dataStructures().orElseThrow().include());
+
+        RuleScope neither = create("{\"Use_Case\":\"NONCLIN\"}", RuleScope.class);
+        assertTrue(neither.dataStructures().isEmpty());
+        assertTrue(neither.subclasses().isEmpty());
+    }
+
+
+    /**
+     * Without this binding a library-sourced dictionary operation looks typeless to the engine,
+     * which is a load error rather than a silently skipped check.
+     */
+    @Test
+    void ruleOperationExternalDictionaryType()
+    {
+        RuleOperation typed = create(
+                """
+                        {"id":"op2","operator":"valid_external_dictionary_code","external_dictionary_type":"meddra"}
+                        """,
+                RuleOperation.class);
+        assertEquals("meddra", typed.externalDictionaryType().orElse(null));
+
+        RuleOperation untyped = create("{\"id\":\"op3\"}", RuleOperation.class);
+        assertTrue(untyped.externalDictionaryType().isEmpty());
+    }
+
+
     @Test
     void ruleScopeFilterFields()
     {
@@ -876,12 +1085,21 @@ class ModelInterfaceTest
     void integratedProductFields()
     {
         IntegratedProduct ip = create("""
-                {"name":"SDTM-IG","version":"3-4",
+                {"name":"SDTM-IG","version":"3-4","label":"Integrated SDTM-IG label",
+                 "description":"Integrated view across SDTM standards",
+                 "source":"CDISC Integrated Team","effectiveDate":"2021-11-27",
+                 "registrationStatus":"Final Integrated",
                  "_links":{"standards":[{"href":"/s1"}],"models":[{"href":"/m1"}]}}
                 """, IntegratedProduct.class);
         assertEquals("SDTM-IG", ip.name().orElse(null));
         assertEquals(1, ip.standardLinks().size());
         assertEquals(1, ip.modelLinks().size());
+        assertEquals("3-4", ip.version().orElse(null));
+        assertEquals("Integrated SDTM-IG label", ip.label().orElse(null));
+        assertEquals("Integrated view across SDTM standards", ip.description().orElse(null));
+        assertEquals("CDISC Integrated Team", ip.source().orElse(null));
+        assertEquals("2021-11-27", ip.effectiveDate().orElse(null));
+        assertEquals("Final Integrated", ip.registrationStatus().orElse(null));
     }
 
     // --- Empty/missing field safety ---

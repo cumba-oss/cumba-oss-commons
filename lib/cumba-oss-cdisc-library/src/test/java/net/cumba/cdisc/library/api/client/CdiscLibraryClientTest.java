@@ -13,6 +13,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import net.cumba.cdisc.library.api.model.adam.AdamProduct;
@@ -480,6 +481,162 @@ class CdiscLibraryClientTest
                 new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
     }
 
+    /**
+     * A recording transport that captures the last request URI and returns a preconfigured
+     * response.
+     */
+    private static class RecordingTransport implements HttpTransport
+    {
+
+        HttpResponse nextResponse;
+
+        URI lastRequestUri;
+
+        String lastRequestPath()
+        {
+            if (lastRequestUri == null)
+            {
+                return null;
+            }
+            String full = lastRequestUri.toString();
+            // The JsonApiClient strips the trailing slash from the base URL,
+            // so we need to match against the stored baseUrl (without trailing slash)
+            String base = CdiscLibraryClient.DEFAULT_BASE_URL;
+            if (base.endsWith("/"))
+            {
+                base = base.substring(0, base.length() - 1);
+            }
+            if (full.startsWith(base))
+            {
+                return full.substring(base.length());
+            }
+            return full;
+        }
+
+
+        @Override
+        public HttpResponse send(HttpRequest request) throws IOException
+        {
+            lastRequestUri = request.uri();
+            if (nextResponse == null)
+            {
+                throw new IOException("No response configured");
+            }
+            return nextResponse;
+        }
+    }
+
+    // --- System-property / environment resolution (BT-C-01, BT-C-02) ---
+
+    /**
+     * BT-C-01 row 1: the ONLY input that distinguishes the two sides of the {@code
+     * !isBlankOrNull(env)} guard is "env set AND property set". {@code PATH} is used as a
+     * guaranteed-present, non-blank environment variable so no environment mutation is needed.
+     */
+    @Test
+    void retrieveSystemPropertyPrefersTheEnvironmentVariable()
+    {
+        String path = System.getenv("PATH");
+        assertNotNull(path, "PATH must be set for this test to be meaningful");
+        assertFalse(path.isBlank());
+        String propName = "cumba.test.retrieveSystemProperty.a";
+        System.setProperty(propName, "property-value");
+        try
+        {
+            assertEquals(path, CdiscLibraryClient.retrieveSystemProperty("PATH", propName));
+        }
+        finally
+        {
+            System.clearProperty(propName);
+        }
+    }
+
+
+    /** BT-C-01 row 2: environment variable absent, property present. */
+    @Test
+    void retrieveSystemPropertyFallsBackToTheSystemProperty()
+    {
+        String propName = "cumba.test.retrieveSystemProperty.b";
+        System.setProperty(propName, "property-value");
+        try
+        {
+            assertEquals("property-value", CdiscLibraryClient
+                    .retrieveSystemProperty("CUMBA_UNSET_ENV_VAR_9f3a", propName));
+        }
+        finally
+        {
+            System.clearProperty(propName);
+        }
+    }
+
+
+    /** BT-C-01 row 4: neither set -> null (not the empty string). */
+    @Test
+    void retrieveSystemPropertyReturnsNullWhenNeitherIsSet()
+    {
+        assertNull(CdiscLibraryClient.retrieveSystemProperty("CUMBA_UNSET_ENV_VAR_9f3a",
+                "cumba.test.retrieveSystemProperty.unset"));
+    }
+
+
+    /** BT-C-02 rows 6-8: the api-url guard, including the blank-but-not-null boundary. */
+    @Test
+    void getApiUrlResolvesPropertyAndFallsBackOnBlank()
+    {
+        assumeTrue(System.getenv(CdiscLibraryClient.ENV_CDISC_API_URL) == null,
+                "CDISC_API_URL must be unset for this test");
+        String previous = System.getProperty(CdiscLibraryClient.SP_CDISC_API_URL);
+        try
+        {
+            System.clearProperty(CdiscLibraryClient.SP_CDISC_API_URL);
+            assertEquals(CdiscLibraryClient.DEFAULT_BASE_URL, CdiscLibraryClient.getApiUrl());
+
+            System.setProperty(CdiscLibraryClient.SP_CDISC_API_URL, "https://example.invalid/api");
+            assertEquals("https://example.invalid/api", CdiscLibraryClient.getApiUrl());
+
+            // Boundary: blank but not null -> isBlankOrNull is true, a plain != null check is not.
+            System.setProperty(CdiscLibraryClient.SP_CDISC_API_URL, "   ");
+            assertEquals(CdiscLibraryClient.DEFAULT_BASE_URL, CdiscLibraryClient.getApiUrl());
+        }
+        finally
+        {
+            if (previous == null)
+            {
+                System.clearProperty(CdiscLibraryClient.SP_CDISC_API_URL);
+            }
+            else
+            {
+                System.setProperty(CdiscLibraryClient.SP_CDISC_API_URL, previous);
+            }
+        }
+    }
+
+
+    /** BT-C-02 row 9: the api key is returned verbatim, not as the empty string. */
+    @Test
+    void getApiKeyReturnsTheConfiguredProperty()
+    {
+        assumeTrue(System.getenv(CdiscLibraryClient.ENV_CDISC_API_KEY) == null,
+                "CDISC_API_KEY must be unset for this test");
+        String previous = System.getProperty(CdiscLibraryClient.SP_CDISC_API_KEY);
+        try
+        {
+            System.setProperty(CdiscLibraryClient.SP_CDISC_API_KEY, "secret-key-4711");
+            assertEquals("secret-key-4711", CdiscLibraryClient.getApiKey());
+        }
+        finally
+        {
+            if (previous == null)
+            {
+                System.clearProperty(CdiscLibraryClient.SP_CDISC_API_KEY);
+            }
+            else
+            {
+                System.setProperty(CdiscLibraryClient.SP_CDISC_API_KEY, previous);
+            }
+        }
+    }
+
 
     /**
      * F-cdisc-library-02: a BLANK system property must be treated as absent, exactly as a blank
@@ -557,48 +714,60 @@ class CdiscLibraryClientTest
         assertThrows(IllegalArgumentException.class, () -> CdiscLibraryClient.builder().apiKey(""));
     }
 
+
     /**
-     * A recording transport that captures the last request URI and returns a preconfigured
-     * response.
+     * BT-C-02 rows 11-12: both sides of the cache-directory guard. The resolved root is asserted by
+     * writing through the cache and locating the file, since the cache directory itself is not
+     * exposed.
      */
-    private static class RecordingTransport implements HttpTransport
+    @Test
+    void getCacheResolvesConfiguredDirectoryAndHomeDefault(@TempDir Path tempDir) throws IOException
     {
-
-        HttpResponse nextResponse;
-
-        URI lastRequestUri;
-
-        String lastRequestPath()
+        assumeTrue(System.getenv(CdiscLibraryClient.ENV_CDISC_API_CACHE) == null,
+                "CDISC_API_CACHE must be unset for this test");
+        String previousProp = System.getProperty(CdiscLibraryClient.SP_CDISC_API_CACHE);
+        String previousHome = System.getProperty("user.home");
+        Path home = tempDir.resolve("home");
+        Path configured = tempDir.resolve("configured");
+        try
         {
-            if (lastRequestUri == null)
-            {
-                return null;
-            }
-            String full = lastRequestUri.toString();
-            // The JsonApiClient strips the trailing slash from the base URL,
-            // so we need to match against the stored baseUrl (without trailing slash)
-            String base = CdiscLibraryClient.DEFAULT_BASE_URL;
-            if (base.endsWith("/"))
-            {
-                base = base.substring(0, base.length() - 1);
-            }
-            if (full.startsWith(base))
-            {
-                return full.substring(base.length());
-            }
-            return full;
+            System.setProperty("user.home", home.toString());
+            System.clearProperty(CdiscLibraryClient.SP_CDISC_API_CACHE);
+            CdiscLibraryClient.getCache().write("/mdr/probe-default",
+                    "{}".getBytes(StandardCharsets.UTF_8));
+            assertTrue(containsFile(home.resolve(".cdiscApiCache")),
+                    "default cache must be rooted at <user.home>/.cdiscApiCache");
+
+            System.setProperty(CdiscLibraryClient.SP_CDISC_API_CACHE, configured.toString());
+            CdiscLibraryClient.getCache().write("/mdr/probe-configured",
+                    "{}".getBytes(StandardCharsets.UTF_8));
+            assertTrue(containsFile(configured),
+                    "configured cache must be rooted at the configured directory");
         }
-
-
-        @Override
-        public HttpResponse send(HttpRequest request) throws IOException
+        finally
         {
-            lastRequestUri = request.uri();
-            if (nextResponse == null)
+            System.setProperty("user.home", previousHome);
+            if (previousProp == null)
             {
-                throw new IOException("No response configured");
+                System.clearProperty(CdiscLibraryClient.SP_CDISC_API_CACHE);
             }
-            return nextResponse;
+            else
+            {
+                System.setProperty(CdiscLibraryClient.SP_CDISC_API_CACHE, previousProp);
+            }
+        }
+    }
+
+
+    private static boolean containsFile(Path root) throws IOException
+    {
+        if (!Files.isDirectory(root))
+        {
+            return false;
+        }
+        try (java.util.stream.Stream<Path> walk = Files.walk(root))
+        {
+            return walk.anyMatch(Files::isRegularFile);
         }
     }
 }
