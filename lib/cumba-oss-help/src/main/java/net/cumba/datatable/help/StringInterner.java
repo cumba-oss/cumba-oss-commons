@@ -4,6 +4,7 @@ import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.ConcurrentHashMap;
+
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -31,10 +32,9 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>
  * Canonicalisation is a <b>provider-layer concern</b>: low-level parser libraries (e.g.
- * {@code net.cumba.sas-utils}, {@code net.cumba.parso}, {@code net.cumba.readstat}) return plain,
- * un-interned strings and must not depend on this class; the providers that wrap them are
- * responsible for routing string cells through here (via {@link CDT#tri(String)} /
- * {@link CDT#intern(String)}).
+ * {@code net.cumba.sas-utils}, {@code net.cumba.parso}) return plain, un-interned strings and must
+ * not depend on this class; the providers that wrap them are responsible for routing string cells
+ * through here (via {@link CDT#tri(String)} / {@link CDT#intern(String)}).
  * </p>
  *
  * <p>

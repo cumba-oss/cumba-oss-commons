@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+
 import net.cumba.cdisc.library.api.model.adam.AdamDataStructure;
 import net.cumba.cdisc.library.api.model.adam.AdamProduct;
 import net.cumba.cdisc.library.api.model.adam.AdamVariable;

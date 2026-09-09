@@ -39,7 +39,7 @@ public class CDT
      *            the array to check.
      * @return true if the given array is null or has a length of 0.
      */
-    public static boolean isEmptyOrNull(int[] anArray)
+    public static boolean isEmptyOrNull(int @Nullable [] anArray)
     {
         return anArray == null || anArray.length == 0;
     }
@@ -52,7 +52,7 @@ public class CDT
      *            the array to check.
      * @return true if the given array is null or has a length of 0.
      */
-    public static boolean isEmptyOrNull(double[] anArray)
+    public static boolean isEmptyOrNull(double @Nullable [] anArray)
     {
         return anArray == null || anArray.length == 0;
     }
@@ -65,7 +65,7 @@ public class CDT
      *            the array to check.
      * @return true if the given array is null or has a length of 0.
      */
-    public static boolean isEmptyOrNull(long[] anArray)
+    public static boolean isEmptyOrNull(long @Nullable [] anArray)
     {
         return anArray == null || anArray.length == 0;
     }
@@ -78,7 +78,7 @@ public class CDT
      *            the array to check.
      * @return true if the given array is null or has a length of 0.
      */
-    public static <T> boolean isEmptyOrNull(T[] anArray)
+    public static <T> boolean isEmptyOrNull(T @Nullable [] anArray)
     {
         return anArray == null || anArray.length == 0;
     }
@@ -104,7 +104,7 @@ public class CDT
      *            the Map to check.
      * @return true if the given Map is null or has a size of 0.
      */
-    public static <K, V> boolean isEmptyOrNull(Map<K, V> aMap)
+    public static <K, V> boolean isEmptyOrNull(@Nullable Map<K, V> aMap)
     {
         return aMap == null || aMap.isEmpty();
     }
@@ -183,9 +183,10 @@ public class CDT
      *            the array of elements to search in.
      * @return true if aElement is contained in aElements.
      */
-    public static boolean containsIgnoreCase(String aElement, String... aElements)
+    public static boolean containsIgnoreCase(@Nullable String aElement,
+            String @Nullable... aElements)
     {
-        if (isEmptyOrNull(aElements))
+        if (aElements == null || aElements.length == 0)
         {
             return false;
         }
@@ -227,9 +228,10 @@ public class CDT
      *            the Collection of elements to search in.
      * @return true if aElement is contained in aElements.
      */
-    public static boolean containsIgnoreCase(String aElement, Collection<String> aElements)
+    public static boolean containsIgnoreCase(@Nullable String aElement,
+            @Nullable Collection<String> aElements)
     {
-        if (isEmptyOrNull(aElements))
+        if (aElements == null || aElements.isEmpty())
         {
             return false;
         }
@@ -319,7 +321,7 @@ public class CDT
      */
     private static boolean isWs(char aChar)
     {
-        return aChar <= ' ' || aChar == ' ';
+        return aChar <= ' ' || aChar == '\u00A0';
     }
 
 
