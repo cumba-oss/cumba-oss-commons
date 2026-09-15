@@ -518,7 +518,24 @@ class CdiscLibraryClientEndpointTest
                         (ClientCall) c -> c.suggest("test")),
                 Arguments.of("searchImplementedBy",
                         "/mdr/search/implementedBy?href=%2Fmdr%2Fadam%2Fadam-2-1", TYPED_JSON,
-                        (ClientCall) c -> c.searchImplementedBy("/mdr/adam/adam-2-1")));
+                        (ClientCall) c -> c.searchImplementedBy("/mdr/adam/adam-2-1")),
+                // The seven endpoints below were reached by a path-only assertion, or by no
+                // assertion at all, so a client returning null from any of them passed. Routing
+                // them through this suite asserts the parsed payload as well as the path.
+                Arguments.of("getProducts", "/mdr/products", TYPED_JSON,
+                        (ClientCall) c -> c.getProducts()),
+                Arguments.of("getProductsExpand", "/mdr/products?expand=true", TYPED_JSON,
+                        (ClientCall) c -> c.getProducts(true)),
+                Arguments.of("getCtPackage", "/mdr/ct/packages/sdtmct-2023-12-15", TYPED_JSON,
+                        (ClientCall) c -> c.getCtPackage("sdtmct-2023-12-15")),
+                Arguments.of("searchInScope", "/mdr/search/scopes/adam", TYPED_JSON,
+                        (ClientCall) c -> c.searchInScope("adam")),
+                Arguments.of("getDiff", "/mdr/diff/sdtmig/3-4", TYPED_JSON,
+                        (ClientCall) c -> c.getDiff("sdtmig", "3-4")),
+                Arguments.of("getDiffAgainstPrevious", "/mdr/diff/sdtmig/3-4/3-3", TYPED_JSON,
+                        (ClientCall) c -> c.getDiff("sdtmig", "3-4", "3-3")),
+                Arguments.of("getLastUpdated", "/mdr/lastupdated", TYPED_JSON,
+                        (ClientCall) c -> c.getLastUpdated()));
     }
 
 

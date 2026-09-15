@@ -87,6 +87,22 @@ class CdiscLibraryClientTest
     }
 
 
+    /**
+     * The covariant {@code CdiscBuilder.cache(ApiCache)} override. No scenario reached it, so a
+     * version of it returning {@code null} instead of {@code this} broke nothing: the fluent chain
+     * below is what makes that a failure rather than a silent one, and the {@code assertSame}
+     * proves the supplied cache is the one the client ends up with rather than a default.
+     */
+    @Test
+    void builderAcceptsAnExplicitCacheAndStaysFluent()
+    {
+        net.cumba.web.api.cache.ApiCache explicit = new net.cumba.web.api.cache.NoOpApiCache();
+        CdiscLibraryClient client = CdiscLibraryClient.builder().apiKey("key").transport(transport)
+                .cache(explicit).build();
+        org.junit.jupiter.api.Assertions.assertSame(explicit, client.cache());
+    }
+
+
     @Test
     void builderSupportsCacheDir(@TempDir Path tempDir)
     {

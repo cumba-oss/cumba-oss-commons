@@ -95,13 +95,40 @@ public interface AdamVariable extends ApiResource
 
 
     /**
-     * Returns link to the associated codelist.
+     * Returns link to the associated codelist, or the <em>first</em> of them when the variable is
+     * associated with several.
      *
-     * @return link to the associated codelist.
+     * <p>
+     * ⚠ The live API serves {@code _links.codelist} as an <b>array</b>, and a variable may carry
+     * more than one — {@code --SEV} in ADaM OCCDS 1.1 is associated with both
+     * {@code /mdr/root/ct/sdtmct/codelists/C66769} and
+     * {@code /mdr/root/ct/sdtmct/codelists/C165643}. This accessor keeps its historical single-link
+     * signature and reports only the first; use {@link #codelistLinks()} for all.
+     * </p>
+     *
+     * @return link to the first associated codelist.
      */
     default Optional<Link> codelistLink()
     {
         return getLink("codelist");
+    }
+
+
+    /**
+     * Returns every codelist link associated with this variable.
+     *
+     * <p>
+     * Measured over the captured response cache: {@code _links.codelist} is an array in all 6 988
+     * occurrences, 169 of them with more than one entry. A caller resolving controlled terminology
+     * through {@link #codelistLink()} alone therefore validates against an incomplete vocabulary,
+     * with no error to say so.
+     * </p>
+     *
+     * @return every codelist link associated with this variable.
+     */
+    default List<Link> codelistLinks()
+    {
+        return getLinks("codelist");
     }
 
 

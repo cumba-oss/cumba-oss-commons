@@ -39,6 +39,10 @@
     </organization>
 
     <properties>
+        <pitest.mutation.target>95</pitest.mutation.target>
+        <pitest.coverage.target>96</pitest.coverage.target>
+        <pitest.test.strength.target>98</pitest.test.strength.target>
+        <jacoco.line.coverage>0.96</jacoco.line.coverage>
         <mockito.agent>-javaagent:${org.mockito:mockito-core:jar}</mockito.agent>
     </properties>
 

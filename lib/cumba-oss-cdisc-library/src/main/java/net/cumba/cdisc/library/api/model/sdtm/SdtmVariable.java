@@ -109,10 +109,35 @@ public interface SdtmVariable extends ApiResource
     }
 
 
-    /** Returns a link to the associated codelist. */
+    /**
+     * Returns a link to the associated codelist, or the <em>first</em> of them when the variable is
+     * associated with several.
+     *
+     * <p>
+     * ⚠ The live API serves {@code _links.codelist} as an <b>array</b>, and a variable may carry
+     * more than one. This accessor keeps its historical single-link signature and reports only the
+     * first; use {@link #codelistLinks()} to see all of them.
+     * </p>
+     */
     default Optional<Link> codelistLink()
     {
         return getLink("codelist");
+    }
+
+
+    /**
+     * Returns every codelist link associated with this variable.
+     *
+     * <p>
+     * Measured over the captured response cache: {@code _links.codelist} is an array in all 6 988
+     * occurrences, 169 of them with more than one entry. A caller resolving controlled terminology
+     * through {@link #codelistLink()} alone therefore validates against an incomplete vocabulary,
+     * with no error to say so.
+     * </p>
+     */
+    default List<Link> codelistLinks()
+    {
+        return getLinks("codelist");
     }
 
 
