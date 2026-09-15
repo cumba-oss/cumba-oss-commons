@@ -65,7 +65,10 @@ public final class StringInterner
      * Create an interner with the given number of shards.
      *
      * @param aShardCount
-     *            the desired shard count; rounded up to the next power of two, with a floor of 1.
+     *            the desired shard count; rounded up to the next power of two, with a floor of 2. ⚠
+     *            The floor is 2, not 1: {@code highestOneBit(max(1, n - 1)) << 1} maps both
+     *            {@code 1} and {@code 2} to two shards. Pinned by
+     *            {@code StringInternerShardingTest}.
      */
     public StringInterner(int aShardCount)
     {
@@ -137,6 +140,19 @@ public final class StringInterner
     }
 
 
+    /**
+     * The number of shards this interner was built with — always a power of two. Intended for tests
+     * and diagnostics; shard count has no effect on the interner's observable result, only on how
+     * much contention it takes under concurrent load.
+     *
+     * @return the shard count.
+     */
+    public int getShardCount()
+    {
+        return shards.length;
+    }
+
+
     /** Mix the hash so the low bits used for shard selection are well distributed. */
     private static int spread(int aHash)
     {
@@ -196,7 +212,11 @@ public final class StringInterner
      * key. The hash is cached at construction so the element remains usable as a key (for removal)
      * even after its referent has been cleared.
      */
-    private static final class WeakElement extends WeakReference<String>
+    // Package-private rather than private purely as a test seam: three branches of equals() —
+    // the identity shortcut, the non-WeakElement case and the hash-mismatch case — are never
+    // reached through ConcurrentHashMap, which short-circuits on reference identity and only
+    // consults equals() within one hash bin. The class stays nested and unpublished.
+    static final class WeakElement extends WeakReference<String>
     {
 
         private final int hash;
