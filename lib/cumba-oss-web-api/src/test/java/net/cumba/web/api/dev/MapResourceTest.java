@@ -195,10 +195,14 @@ class MapResourceTest
 
 
         @Test
-        void getStringConvertsNonString()
+        void getStringDoesNotConvertANonString()
         {
-            // map-based resource uses toString() for non-string values
-            assertEquals(Optional.of("42"), new MapResource(Map.of("k", 42)).getString("k"));
+            // Reversed by the Q13 ruling of 2026-09-11: the interface contract is "empty if the
+            // field is missing or not textual", and JsonNodeResource has always honoured it. A
+            // fixture holding the number 42 used to read back as "42" here, so it passed a test
+            // the live JSON path would have failed.
+            assertEquals(Optional.empty(), new MapResource(Map.of("k", 42)).getString("k"));
+            assertEquals(Optional.of("42"), new MapResource(Map.of("k", "42")).getString("k"));
         }
 
 
@@ -226,9 +230,10 @@ class MapResourceTest
 
 
         @Test
-        void getIntReturnsValueForDouble()
+        void getIntReturnsEmptyForDouble()
         {
-            assertEquals(3, new MapResource(Map.of("n", 3.7)).getInt("n").orElse(-1));
+            // Changed 2026-09-11: this used to assert 3, pinning the silent truncation of 3.7.
+            assertTrue(new MapResource(Map.of("n", 3.7)).getInt("n").isEmpty());
         }
 
 
@@ -554,12 +559,15 @@ class MapResourceTest
 
 
         @Test
-        void getStringListNullForNullElement()
+        void getStringListEmptyForNullElement()
         {
+            // Reversed by the Q13 ruling of 2026-09-11: a null used to become a null entry inside
+            // a declared List<String>, where JsonNodeResource rendered the same JSON null as the
+            // literal "null". Both now answer the empty string, and the element keeps its place.
             List<String> list = new MapResource(Map.of("tags", Arrays.asList("a", null, "b")))
                     .getStringList("tags");
             assertEquals(3, list.size());
-            assertEquals(null, list.get(1));
+            assertEquals("", list.get(1));
         }
 
 

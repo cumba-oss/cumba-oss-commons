@@ -158,8 +158,13 @@ public final class JsonArrayResource implements ApiArrayResource
     public OptionalLong getLong(int aIndex)
     {
         JsonNode element = node.get(aIndex);
-        if (element == null || !element.isNumber())
+        if (element == null || !element.isIntegralNumber() || !element.canConvertToLong())
         {
+            // F-webapi-03: no silent truncation and no wrap-around, and exactly the values
+            // isLong above rejects. The old test was only !isNumber(), so 3.99 answered
+            // OptionalLong.of(3) - isLong said "not a long" and getLong handed one back anyway -
+            // and 9223372036854775808 answered -9223372036854775808, the low 64 bits of a value
+            // that does not fit, presented as a valid number.
             return OptionalLong.empty();
         }
         return OptionalLong.of(element.asLong());
@@ -169,8 +174,16 @@ public final class JsonArrayResource implements ApiArrayResource
     @Override
     public boolean isDouble(int aIndex)
     {
+        // Q12 (2026-09-11), strict on both sides: this predicate answers exactly what getDouble
+        // below answers, which for a double means "readable as one without loss" rather than
+        // "written with a fraction". It used to be isFloatingPointNumber(), so isDouble(42) was
+        // false while getDouble(42) handed back 42.0 - the same broken pairing F-webapi-03 found
+        // between isLong and getLong, inverted, and a caller guarding on the predicate silently
+        // skipped a number it could have read. The other two implementations cannot even express
+        // the strict reading: XML text is untyped, and ListResource answers instanceof Number, so
+        // this is the only semantics all three can agree on.
         JsonNode element = node.get(aIndex);
-        return element != null && element.isFloatingPointNumber();
+        return element != null && element.isNumber();
     }
 
 
@@ -266,6 +279,30 @@ public final class JsonArrayResource implements ApiArrayResource
     }
 
 
+    /**
+     * Reads one array element as a string: its text when it is a JSON string, and the empty string
+     * otherwise.
+     *
+     * <p>
+     * Q13 (2026-09-11). {@code asText()} used to be called directly, which rendered a JSON
+     * {@code null} as the four-character string {@code "null"} and the number {@code 7} as
+     * {@code "7"} while an object answered {@code ""} — three different answers to one question,
+     * and on the controlled-terminology path a vocabulary that silently gained terms nobody
+     * published. The element keeps its position (dropping it was considered and rejected) and
+     * answers empty, which is what {@link #getString(int)} has always answered for the same
+     * element.
+     * </p>
+     *
+     * @param aElement
+     *            the array element.
+     * @return the string value, or {@code ""} when the element is not a JSON string.
+     */
+    static String textOf(JsonNode aElement)
+    {
+        return aElement.isTextual() ? aElement.asText() : "";
+    }
+
+
     @Override
     public List<String> getStringList(int aIndex)
     {
@@ -281,7 +318,7 @@ public final class JsonArrayResource implements ApiArrayResource
             @Override
             public String get(int index)
             {
-                return array.get(index).asText();
+                return textOf(array.get(index));
             }
 
 
@@ -303,6 +340,45 @@ public final class JsonArrayResource implements ApiArrayResource
     // --- Object overrides ---
 
 
+    /**
+     * Unwraps a domain-typed proxy handed out by the two-argument {@code of} factory to the
+     * {@code JsonArrayResource} it delegates to, so that {@link #equals(Object)} sees the same
+     * object on both sides of a comparison.
+     *
+     * <p>
+     * Without this, {@code equals} was broken for every proxy this class produces. A proxy's own
+     * {@code equals} is dispatched to the invocation handler, which forwards it as
+     * {@code delegate.equals(theProxy)} — and the proxy is not a {@code JsonArrayResource}, so the
+     * {@code instanceof} test below failed. The consequences were not subtle: {@code x.equals(x)}
+     * was <b>false</b> for a proxy, which silently breaks {@code List.contains},
+     * {@code List.indexOf}, {@code List.remove(Object)}, {@code Set} de-duplication and
+     * {@code Stream.distinct} — each of them then reporting "not found" or "no duplicate" instead
+     * of failing. Comparison was asymmetric too: {@code proxy.equals(plain)} was {@code true} while
+     * {@code plain.equals(proxy)} was {@code false}. {@link #hashCode()} has always hashed the
+     * delegate, so it was already consistent with the value-based equality restored here.
+     * </p>
+     *
+     * <p>
+     * Only proxies produced by <i>this</i> class are unwrapped: the handler type tested below is
+     * private to it, so a proxy from another resource implementation, or any unrelated dynamic
+     * proxy, is returned untouched and compares unequal exactly as before.
+     * </p>
+     *
+     * @param aOther
+     *            the object being compared against.
+     * @return the delegate behind one of this class's proxies, or {@code aOther} unchanged.
+     */
+    private static Object unwrapProxy(Object aOther)
+    {
+        if (Proxy.isProxyClass(aOther.getClass()) && Proxy
+                .getInvocationHandler(aOther) instanceof ArrayResourceInvocationHandler handler)
+        {
+            return handler.delegate();
+        }
+        return aOther;
+    }
+
+
     @Override
     public boolean equals(Object o)
     {
@@ -310,7 +386,7 @@ public final class JsonArrayResource implements ApiArrayResource
         {
             return true;
         }
-        if (o instanceof JsonArrayResource other)
+        if (o != null && unwrapProxy(o) instanceof JsonArrayResource other)
         {
             return node.equals(other.node);
         }

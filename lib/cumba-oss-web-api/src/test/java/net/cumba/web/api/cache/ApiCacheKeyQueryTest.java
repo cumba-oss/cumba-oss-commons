@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -395,13 +394,22 @@ class ApiCacheKeyQueryTest
 
 
         /**
-         * Measures a key the way {@code FileApiCache.toCacheFileName} will: slashes become
-         * underscores, then the whole thing is URL-encoded. Computed here independently of the
-         * implementation so the bound is asserted, not restated.
+         * Measures a key the way {@code FileApiCache.toCacheFileName} will: one character for a
+         * byte the encoding keeps ({@code a}-{@code z}, {@code 0}-{@code 9}, {@code -}, {@code .}
+         * and the {@code '/'} that becomes {@code '_'}), three for every other byte. Computed here
+         * independently of the implementation so the bound is asserted, not restated.
          */
         private static int encodedLength(String aKey)
         {
-            return URLEncoder.encode(aKey.replace('/', '_'), StandardCharsets.UTF_8).length();
+            int length = 0;
+            for (byte raw : aKey.getBytes(StandardCharsets.UTF_8))
+            {
+                char ch = (char) (raw & 0xFF);
+                boolean kept = ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-'
+                        || ch == '.' || ch == '/';
+                length += kept ? 1 : 3;
+            }
+            return length;
         }
 
 

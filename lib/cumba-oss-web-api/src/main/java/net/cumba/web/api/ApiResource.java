@@ -108,9 +108,15 @@ public interface ApiResource
     /**
      * Returns the value of an integer field.
      *
+     * <p>
+     * Strict (Q12, 2026-09-11): a value that is not an <i>integer</i>, or that does not fit an int,
+     * answers empty rather than a narrowed or truncated stand-in. A floating-point {@code 3.0} is
+     * not an integer, whatever its fraction.
+     * </p>
+     *
      * @param fieldName
      *            the JSON field name
-     * @return the int value, or empty if the field is missing or not a number
+     * @return the int value, or empty if the field is missing or is not an integer that fits
      */
     OptionalInt getInt(String fieldName);
 
@@ -118,9 +124,13 @@ public interface ApiResource
     /**
      * Returns the value of a long integer field.
      *
+     * <p>
+     * Strict (Q12, 2026-09-11), exactly as {@link #getInt(String)} above.
+     * </p>
+     *
      * @param fieldName
      *            the JSON field name
-     * @return the long value, or empty if the field is missing or not a number
+     * @return the long value, or empty if the field is missing or is not an integer that fits
      */
     OptionalLong getLong(String fieldName);
 
@@ -248,6 +258,14 @@ public interface ApiResource
     /**
      * Returns an array field as a list of strings.
      *
+     * <p>
+     * An element that is not a string reads as the empty string and keeps its position, so the list
+     * is always the same length as the array and never fabricates a value: a JSON {@code null} is
+     * not the term {@code "null"} and the number {@code 7} is not the term {@code "7"} (Q13,
+     * 2026-09-11). This is the same answer {@link #getString(String)} gives for a field of that
+     * type, and every implementation of this interface owes it.
+     * </p>
+     *
      * @param fieldName
      *            the JSON field name
      * @return the list (empty if the field is missing or not an array)
@@ -256,7 +274,8 @@ public interface ApiResource
 
 
     /**
-     * Returns an array field as a stream of strings.
+     * Returns an array field as a stream of strings, element for element as
+     * {@link #getStringList(String)} reads them.
      *
      * @param fieldName
      *            the JSON field name

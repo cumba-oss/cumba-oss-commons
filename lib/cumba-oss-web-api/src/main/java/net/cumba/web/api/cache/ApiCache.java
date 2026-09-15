@@ -1,7 +1,7 @@
 package net.cumba.web.api.cache;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -358,9 +358,14 @@ public interface ApiCache
 
 
     /**
-     * Returns the length a key occupies once encoded for use as a file name, mirroring
-     * {@code FileApiCache.toCacheFileName} so that the bound applies to what actually reaches the
-     * file system rather than to the raw key.
+     * Returns the length a key occupies once encoded for use as a file name.
+     *
+     * <p>
+     * It calls the encoder itself rather than reproducing it, so the bound applies to what actually
+     * reaches the file system and cannot drift away from it — the two were a mirrored pair of
+     * expressions until Q14 changed the encoding, and a mirror is exactly the kind of check that
+     * stops checking without saying so.
+     * </p>
      *
      * @param aKey
      *            the key, or a fragment of one.
@@ -368,7 +373,135 @@ public interface ApiCache
      */
     private static int encodedKeyLength(String aKey)
     {
-        return URLEncoder.encode(aKey.replace('/', '_'), StandardCharsets.UTF_8).length();
+        return encodeKeyForFileName(aKey).length();
+    }
+
+
+    /**
+     * Encodes a cache key into the body of a file name — everything before the extension.
+     *
+     * <p>
+     * <b>Q14 (2026-09-11).</b> The previous encoding mapped {@code '/'} to {@code '_'} and then
+     * URL-encoded the result, but {@code '_'} is URL-safe and was left alone, so {@code /a/b} and
+     * {@code /a_b} produced <b>the same file</b> and one endpoint's body was served for another
+     * with nothing failing. It also stripped a leading {@code '/'}, collapsing {@code /a} onto
+     * {@code a}, and it passed letters through unchanged — which collides on a case-insensitive
+     * file system, and {@code win_x64} is a shipped platform.
+     * </p>
+     *
+     * <p>
+     * The encoding here is injective, and demonstrably so. Each byte of the UTF-8 key maps to one
+     * of three disjoint output forms:
+     * </p>
+     * <ul>
+     * <li>{@code a}–{@code z}, {@code 0}–{@code 9}, {@code -} and {@code .} stand for
+     * themselves;</li>
+     * <li>{@code '/'} — and only {@code '/'} — becomes {@code '_'};</li>
+     * <li>every other byte becomes {@code %} followed by two <i>lower-case</i> hex digits.</li>
+     * </ul>
+     * <p>
+     * No form can be mistaken for another ({@code '%'} itself is escaped, and the escape is
+     * fixed-width), so the output is uniquely decodable left to right — see
+     * {@link #decodeKeyFromFileName(String)} — and therefore injective. Nothing is stripped, so
+     * {@code /a} and {@code a} stay distinct too.
+     * </p>
+     *
+     * <p>
+     * <b>Case-insensitive file systems.</b> Upper-case letters are escaped rather than passed
+     * through, and the hex digits are lower case, so the encoded name <b>contains no upper-case
+     * character at all</b>. Case-folding is the identity on it, which makes the mapping injective
+     * on Windows and on a default macOS volume exactly as it is on ext4 — a mapping that is
+     * injective only until the file system folds it is not injective where it matters. It costs
+     * three characters per upper-case letter, which is why {@code ADSL} reads as
+     * {@code %41%44%53%4c}; the lower-case path segments around it stay readable, which is what
+     * makes a cache directory diagnosable by hand.
+     * </p>
+     *
+     * <p>
+     * ⚠ Cache files written by an earlier version are not readable under this encoding and are
+     * simply never hit again; the ruling that asked for this fix waived backward compatibility
+     * explicitly. A stale directory costs disk, not correctness.
+     * </p>
+     *
+     * @param aKey
+     *            the cache key.
+     * @return the encoded file-name body.
+     */
+    static String encodeKeyForFileName(String aKey)
+    {
+        StringBuilder encoded = new StringBuilder(aKey.length() + 8);
+        for (byte raw : aKey.getBytes(StandardCharsets.UTF_8))
+        {
+            char ch = (char) (raw & 0xFF);
+            if (ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '.')
+            {
+                encoded.append(ch);
+            }
+            else if (ch == '/')
+            {
+                encoded.append('_');
+            }
+            else
+            {
+                encoded.append('%').append(HexFormat.of().toHexDigits(raw));
+            }
+        }
+        return encoded.toString();
+    }
+
+
+    /**
+     * Recovers the cache key from a file name body produced by
+     * {@link #encodeKeyForFileName(String)} — the inverse, and the evidence that the encoding loses
+     * nothing.
+     *
+     * <p>
+     * Upper-case hex digits are accepted, so a name read back from a file system that folded its
+     * case still decodes.
+     * </p>
+     *
+     * @param aName
+     *            the file name body, without the extension.
+     * @return the cache key.
+     * @throws IllegalArgumentException
+     *             if the name is not something this encoder could have produced.
+     */
+    static String decodeKeyFromFileName(String aName)
+    {
+        ByteArrayOutputStream decoded = new ByteArrayOutputStream(aName.length());
+        int at = 0;
+        while (at < aName.length())
+        {
+            char ch = aName.charAt(at);
+            if (ch == '_')
+            {
+                decoded.write('/');
+                at++;
+            }
+            else if (ch == '%')
+            {
+                if (at + 2 >= aName.length())
+                {
+                    throw new IllegalArgumentException("truncated escape in cache name: " + aName);
+                }
+                try
+                {
+                    decoded.write(HexFormat.fromHexDigits(aName, at + 1, at + 3));
+                }
+                catch (NumberFormatException aNotHex)
+                {
+                    throw new IllegalArgumentException("bad escape in cache name: " + aName,
+                            aNotHex);
+                }
+                at += 3;
+            }
+            else
+            {
+                decoded.write(ch);
+                at++;
+            }
+        }
+        return decoded.toString(StandardCharsets.UTF_8);
     }
 
 

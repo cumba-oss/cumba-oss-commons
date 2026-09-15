@@ -329,13 +329,17 @@ class JsonArrayResourceTest
 
 
         @Test
-        void isDoubleReturnsFalseForInt()
+        void isDoubleReturnsTrueForInt()
         {
-            // isDouble uses Jackson's isFloatingPointNumber(), which is strict —
-            // integral values return false even though they could be widened to double.
+            // Reversed by the Q12 ruling of 2026-09-11. isDouble used to be
+            // isFloatingPointNumber(), so it answered false for 42 while getDouble(0) handed back
+            // 42.0 — a predicate contradicting its own accessor, and a caller guarding on it
+            // silently skipped a number it could have read. The two XML implementations cannot
+            // even express the strict reading, since XML text is untyped.
             ArrayNode arr = mapper.createArrayNode();
             arr.add(42);
-            assertFalse(JsonArrayResource.of(arr).isDouble(0));
+            assertTrue(JsonArrayResource.of(arr).isDouble(0));
+            assertEquals(42.0d, JsonArrayResource.of(arr).getDouble(0).orElseThrow());
         }
 
 

@@ -4,8 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -320,11 +318,28 @@ public class FileApiCache implements ApiCache
     }
 
 
+    @SuppressWarnings("PMD.EmptyCatchBlock")
     @Override
     public void writeEntry(String aPath, CacheEntry aEntry)
     {
         write(aPath, aEntry.content());
-        writeMetaFile(aPath, aEntry);
+        if (!writeMetaFile(aPath, aEntry))
+        {
+            // A body whose sidecar never landed is worse than no entry at all. readMeta falls
+            // back to status 200 and NO headers, so that body would come back under a status and
+            // a header set that were never its own - a cached 404 read as a 200, and a
+            // CacheValidator keyed on the response headers judging a stale body fresh because it
+            // sees none. Both writes stay non-fatal by design; what must not survive is the
+            // half-written entry.
+            try
+            {
+                invalidate(aPath);
+            }
+            catch (IOException _)
+            {
+                // Best effort. A cache write never throws, and there is nothing further to try.
+            }
+        }
     }
 
 
@@ -386,10 +401,14 @@ public class FileApiCache implements ApiCache
     public boolean invalidate(String aPath) throws IOException
     {
         Path cacheFile = cacheDir.resolve(toCacheFileName(aPath));
-        // Also remove the metadata sidecar
         Path metaFile = metaFilePath(cacheFile);
+        // Body first, sidecar second. The other order leaves the body standing with its metadata
+        // already gone whenever the second delete fails, and readMeta then serves that body under
+        // its status-200 / no-headers fallback - a cached 404 coming back as a 200. This order can
+        // only ever leave an orphaned sidecar, which nothing reads once its body is gone.
+        boolean removed = Files.deleteIfExists(cacheFile);
         Files.deleteIfExists(metaFile);
-        return Files.deleteIfExists(cacheFile);
+        return removed;
     }
 
 
@@ -419,19 +438,20 @@ public class FileApiCache implements ApiCache
     /**
      * Converts an endpoint path to a safe cache file name.
      *
+     * <p>
+     * The encoding lives in {@link ApiCache#encodeKeyForFileName(String)} — one function, used both
+     * here and by the length bound that decides when a key has to be shortened, so the two cannot
+     * disagree about what a key costs on disk. See it for why the mapping is injective and why it
+     * survives a case-insensitive file system (Q14, 2026-09-11).
+     * </p>
+     *
      * @param aEndpoint
      *            the endpoint path.
      * @return the cache file name.
      */
     public String toCacheFileName(String aEndpoint)
     {
-        String name = aEndpoint;
-        if (name.startsWith("/"))
-        {
-            name = name.substring(1);
-        }
-        name = name.replace('/', '_');
-        return URLEncoder.encode(name, StandardCharsets.UTF_8) + extension;
+        return ApiCache.encodeKeyForFileName(aEndpoint) + extension;
     }
 
     // --- Internal ---
@@ -484,9 +504,13 @@ public class FileApiCache implements ApiCache
 
     /**
      * Writes the metadata sidecar file for a cache entry.
+     *
+     * @return {@code true} when the sidecar is on disk, {@code false} when the write failed. The
+     *         failure itself stays non-fatal; the caller uses the answer to decide whether the body
+     *         it has just written may be left standing.
      */
     @SuppressWarnings("PMD.EmptyCatchBlock")
-    private void writeMetaFile(String aPath, CacheEntry aEntry)
+    private boolean writeMetaFile(String aPath, CacheEntry aEntry)
     {
         Path tmp = null;
         try
@@ -503,10 +527,12 @@ public class FileApiCache implements ApiCache
             Files.move(tmp, metaFile, StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING);
             tmp = null;
+            return true;
         }
         catch (IOException _)
         {
             // Meta write failures are non-fatal
+            return false;
         }
         finally
         {

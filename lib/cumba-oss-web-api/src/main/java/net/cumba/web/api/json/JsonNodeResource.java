@@ -196,8 +196,13 @@ public final class JsonNodeResource implements ApiResource
     @Override
     public OptionalInt getInt(String fieldName)
     {
+        // F-webapi-03: never narrow a value that does not fit an int. This is the same rule
+        // XmlElementResource.getInt already applied; until it was extended here the two
+        // implementations of this one interface method disagreed, and JSON answered
+        // OptionalInt.of(-2147483648) for the perfectly valid 2147483648 and 3 for 3.14.
         JsonNode field = node.get(fieldName);
-        return field != null && field.isNumber() ? OptionalInt.of(field.asInt())
+        return field != null && field.isIntegralNumber() && field.canConvertToInt()
+                ? OptionalInt.of(field.asInt())
                 : OptionalInt.empty();
     }
 
@@ -205,8 +210,10 @@ public final class JsonNodeResource implements ApiResource
     @Override
     public OptionalLong getLong(String fieldName)
     {
+        // F-webapi-03, as for getInt above: 3.14 is not a long and 2^63 does not fit one.
         JsonNode field = node.get(fieldName);
-        return field != null && field.isNumber() ? OptionalLong.of(field.asLong())
+        return field != null && field.isIntegralNumber() && field.canConvertToLong()
+                ? OptionalLong.of(field.asLong())
                 : OptionalLong.empty();
     }
 
@@ -315,7 +322,10 @@ public final class JsonNodeResource implements ApiResource
             @Override
             public String get(int index)
             {
-                return field.get(index).asText();
+                // Q13 (2026-09-11): see JsonArrayResource.textOf - an element that is not a JSON
+                // string keeps its position and answers empty, instead of a JSON null rendering
+                // as the literal "null" and a number as its digits.
+                return JsonArrayResource.textOf(field.get(index));
             }
 
 
@@ -339,7 +349,7 @@ public final class JsonNodeResource implements ApiResource
 
         return IntStream.range(0, field.size())//
                 .mapToObj(field::get)//
-                .map(JsonNode::asText);
+                .map(JsonArrayResource::textOf);
     }
 
 
@@ -404,6 +414,45 @@ public final class JsonNodeResource implements ApiResource
     // --- Object overrides ---
 
 
+    /**
+     * Unwraps a domain-typed proxy handed out by the two-argument {@code of} factory to the
+     * {@code JsonNodeResource} it delegates to, so that {@link #equals(Object)} sees the same
+     * object on both sides of a comparison.
+     *
+     * <p>
+     * Without this, {@code equals} was broken for every proxy this class produces. A proxy's own
+     * {@code equals} is dispatched to the invocation handler, which forwards it as
+     * {@code delegate.equals(theProxy)} — and the proxy is not a {@code JsonNodeResource}, so the
+     * {@code instanceof} test below failed. The consequences were not subtle: {@code x.equals(x)}
+     * was <b>false</b> for a proxy, which silently breaks {@code List.contains},
+     * {@code List.indexOf}, {@code List.remove(Object)}, {@code Set} de-duplication and
+     * {@code Stream.distinct} — each of them then reporting "not found" or "no duplicate" instead
+     * of failing. Comparison was asymmetric too: {@code proxy.equals(plain)} was {@code true} while
+     * {@code plain.equals(proxy)} was {@code false}. {@link #hashCode()} has always hashed the
+     * delegate, so it was already consistent with the value-based equality restored here.
+     * </p>
+     *
+     * <p>
+     * Only proxies produced by <i>this</i> class are unwrapped: the handler type tested below is
+     * private to it, so a proxy from another resource implementation, or any unrelated dynamic
+     * proxy, is returned untouched and compares unequal exactly as before.
+     * </p>
+     *
+     * @param aOther
+     *            the object being compared against.
+     * @return the delegate behind one of this class's proxies, or {@code aOther} unchanged.
+     */
+    private static Object unwrapProxy(Object aOther)
+    {
+        if (Proxy.isProxyClass(aOther.getClass())
+                && Proxy.getInvocationHandler(aOther) instanceof ResourceInvocationHandler handler)
+        {
+            return handler.delegate();
+        }
+        return aOther;
+    }
+
+
     @Override
     public boolean equals(Object o)
     {
@@ -411,7 +460,7 @@ public final class JsonNodeResource implements ApiResource
         {
             return true;
         }
-        if (o instanceof JsonNodeResource other)
+        if (o != null && unwrapProxy(o) instanceof JsonNodeResource other)
         {
             return node.equals(other.node);
         }

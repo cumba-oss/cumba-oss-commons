@@ -108,16 +108,19 @@ class XmlApiClientTest
         @Test
         void convertsPathToXmlExtension()
         {
-            assertEquals("study_S.001.xml",
+            // Q14 (2026-09-11): the leading separator is encoded rather than stripped, and an
+            // upper-case letter is escaped so that the name cannot collide with its lower-case
+            // twin on a case-insensitive file system. '.' and '-' stay readable.
+            assertEquals("_study_%53.001.xml",
                     new net.cumba.web.api.cache.FileApiCache(java.nio.file.Path.of("."), ".xml")
                             .toCacheFileName("/study/S.001"));
         }
 
 
         @Test
-        void stripsLeadingSlash()
+        void encodesLeadingSlash()
         {
-            assertEquals("root.xml",
+            assertEquals("_root.xml",
                     new net.cumba.web.api.cache.FileApiCache(java.nio.file.Path.of("."), ".xml")
                             .toCacheFileName("/root"));
         }

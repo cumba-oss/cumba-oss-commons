@@ -332,7 +332,10 @@ public final class XmlChildListResource implements ApiArrayResource
         {
             if (children.item(i) instanceof Element childElem)
             {
-                result.add(childElem.getTextContent());
+                // Q13: an element with element children of its own has no string value - see
+                // XmlElementResource.textValueOf, which both XML implementations share so that
+                // they cannot drift apart on it.
+                result.add(XmlElementResource.textValueOf(childElem));
             }
         }
         return Collections.unmodifiableList(result);
@@ -348,6 +351,46 @@ public final class XmlChildListResource implements ApiArrayResource
     // --- Object overrides ---
 
 
+    /**
+     * Unwraps a domain-typed proxy handed out by the two-argument {@code of} factory to the
+     * {@code XmlChildListResource} it delegates to, so that {@link #equals(Object)} sees the same
+     * object on both sides of a comparison.
+     *
+     * <p>
+     * Without this, {@code equals} was broken for every proxy this class produces. A proxy's own
+     * {@code equals} is dispatched to the invocation handler, which forwards it as
+     * {@code delegate.equals(theProxy)} — and the proxy is not a {@code XmlChildListResource}, so
+     * the {@code instanceof} test below failed. The consequences were not subtle:
+     * {@code x.equals(x)} was <b>false</b> for a proxy, which silently breaks
+     * {@code List.contains}, {@code List.indexOf}, {@code List.remove(Object)}, {@code Set}
+     * de-duplication and {@code Stream.distinct} — each of them then reporting "not found" or "no
+     * duplicate" instead of failing. Comparison was asymmetric too: {@code proxy.equals(plain)} was
+     * {@code true} while {@code plain.equals(proxy)} was {@code false}. {@link #hashCode()} has
+     * always hashed the delegate, so it was already consistent with the value-based equality
+     * restored here.
+     * </p>
+     *
+     * <p>
+     * Only proxies produced by <i>this</i> class are unwrapped: the handler type tested below is
+     * private to it, so a proxy from another resource implementation, or any unrelated dynamic
+     * proxy, is returned untouched and compares unequal exactly as before.
+     * </p>
+     *
+     * @param aOther
+     *            the object being compared against.
+     * @return the delegate behind one of this class's proxies, or {@code aOther} unchanged.
+     */
+    private static Object unwrapProxy(Object aOther)
+    {
+        if (Proxy.isProxyClass(aOther.getClass()) && Proxy
+                .getInvocationHandler(aOther) instanceof ArrayResourceInvocationHandler handler)
+        {
+            return handler.delegate();
+        }
+        return aOther;
+    }
+
+
     @Override
     public boolean equals(Object o)
     {
@@ -355,7 +398,7 @@ public final class XmlChildListResource implements ApiArrayResource
         {
             return true;
         }
-        if (o instanceof XmlChildListResource other)
+        if (o != null && unwrapProxy(o) instanceof XmlChildListResource other)
         {
             return elements.equals(other.elements);
         }

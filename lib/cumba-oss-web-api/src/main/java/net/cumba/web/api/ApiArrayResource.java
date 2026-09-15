@@ -65,9 +65,15 @@ public interface ApiArrayResource
     /**
      * Returns the element at the given index as an int.
      *
+     * <p>
+     * Strict (Q12, 2026-09-11): a value that is not an <i>integer</i>, or that does not fit an int,
+     * answers empty rather than a narrowed or truncated stand-in, and {@link #isInt(int)} answers
+     * exactly the same question.
+     * </p>
+     *
      * @param aIndex
      *            the zero-based element index
-     * @return the int value, or empty if the element is missing or not an integer
+     * @return the int value, or empty if the element is missing or not an integer that fits
      */
     OptionalInt getInt(int aIndex);
 
@@ -93,11 +99,17 @@ public interface ApiArrayResource
 
 
     /**
-     * Checks whether the element at the given index is a floating-point value.
+     * Checks whether the element at the given index can be read as a double.
+     *
+     * <p>
+     * True for any number, not only for one written with a fraction (Q12, 2026-09-11): this
+     * predicate answers exactly what {@link #getDouble(int)} answers, and an untyped source such as
+     * XML cannot tell {@code 42} from {@code 42.0} in the first place.
+     * </p>
      *
      * @param aIndex
      *            the zero-based element index
-     * @return {@code true} if the element exists and is a double, {@code false} otherwise
+     * @return {@code true} if the element exists and is a number, {@code false} otherwise
      */
     boolean isDouble(int aIndex);
 
@@ -202,6 +214,11 @@ public interface ApiArrayResource
 
     /**
      * Returns a nested array element as a list of strings.
+     *
+     * <p>
+     * An element that is not a string reads as the empty string and keeps its position — the same
+     * contract, and the same reason, as {@code ApiResource.getStringList} (Q13, 2026-09-11).
+     * </p>
      *
      * @param aIndex
      *            the zero-based element index of the nested array

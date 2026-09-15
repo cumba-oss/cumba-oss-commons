@@ -3,6 +3,7 @@ package net.cumba.web.api.json;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -410,7 +411,9 @@ class JsonApiClientTest
         {
             String name = new net.cumba.web.api.cache.FileApiCache(Path.of("."), ".json")
                     .toCacheFileName("/api/v1/data");
-            assertTrue(name.startsWith("api_v1_data"));
+            // Q14 (2026-09-11): the leading separator is encoded rather than stripped, so the
+            // name starts with the underscore it maps to.
+            assertTrue(name.startsWith("_api_v1_data"), name);
         }
 
 
@@ -442,6 +445,10 @@ class JsonApiClientTest
                     .toCacheFileName("data");
             assertTrue(name.startsWith("data"));
             assertTrue(name.endsWith(".json"));
+            assertNotEquals(
+                    name, new net.cumba.web.api.cache.FileApiCache(Path.of("."), ".json")
+                            .toCacheFileName("/data"),
+                    "Q14: a key with a leading slash is a different key");
         }
     }
 

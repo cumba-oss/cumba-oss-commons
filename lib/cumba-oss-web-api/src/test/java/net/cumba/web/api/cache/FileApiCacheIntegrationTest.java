@@ -4,6 +4,7 @@ import static net.cumba.web.api.cache.CacheBytes.bytes;
 import static net.cumba.web.api.cache.CacheBytes.text;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -40,11 +41,17 @@ class FileApiCacheIntegrationTest
     class CacheFileNaming
     {
 
+        /**
+         * Reversed by the Q14 ruling of 2026-09-11. The leading {@code '/'} used to be stripped,
+         * which is why this pair of tests expected <b>the same name</b> for two different keys —
+         * the collision was written down here as though it were the specification. It is now
+         * encoded like any other separator.
+         */
         @Test
-        void leadingSlashStripped(@TempDir Path tempDir)
+        void leadingSlashIsEncoded(@TempDir Path tempDir)
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            assertEquals("mdr_adam.json", cache.toCacheFileName("/mdr/adam"));
+            assertEquals("_mdr_adam.json", cache.toCacheFileName("/mdr/adam"));
         }
 
 
@@ -53,25 +60,29 @@ class FileApiCacheIntegrationTest
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
             assertEquals("mdr_adam.json", cache.toCacheFileName("mdr/adam"));
+            assertNotEquals(cache.toCacheFileName("/mdr/adam"), cache.toCacheFileName("mdr/adam"));
         }
 
 
         @Test
-        void urlEncodingApplied(@TempDir Path tempDir)
+        void escapingApplied(@TempDir Path tempDir)
         {
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            // Spaces and characters not safe in URL get encoded
+            // A space is escaped as %20, not as the '+' URLEncoder used to produce — see
+            // ApiCache.encodeKeyForFileName for why every escape is lower-case hex.
             String name = cache.toCacheFileName("/with space");
-            assertTrue(name.contains("+") || name.contains("%20"));
-            assertTrue(name.endsWith(".json"));
+            assertEquals("_with%20space.json", name);
         }
 
 
         @Test
-        void rootPathProducesEmptyBase(@TempDir Path tempDir)
+        void rootPathIsNotAnEmptyBase(@TempDir Path tempDir)
         {
+            // Q14: "/" used to produce the extension alone, so the root shared its file with the
+            // empty key. It is now the one-character name the separator encodes to.
             FileApiCache cache = new FileApiCache(tempDir, ".json");
-            assertEquals(".json", cache.toCacheFileName("/"));
+            assertEquals("_.json", cache.toCacheFileName("/"));
+            assertNotEquals(cache.toCacheFileName(""), cache.toCacheFileName("/"));
         }
 
 

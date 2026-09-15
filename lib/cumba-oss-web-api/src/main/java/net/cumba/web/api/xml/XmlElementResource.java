@@ -217,7 +217,15 @@ public final class XmlElementResource implements ApiResource
             }
         }
 
-        // Has child elements?
+        return hasElementChildren(aElement);
+    }
+
+
+    /**
+     * Reports whether the element has at least one child <i>element</i> (text nodes do not count).
+     */
+    private static boolean hasElementChildren(Element aElement)
+    {
         NodeList children = aElement.getChildNodes();
         for (int i = 0; i < children.getLength(); i++)
         {
@@ -226,8 +234,37 @@ public final class XmlElementResource implements ApiResource
                 return true;
             }
         }
-
         return false;
+    }
+
+
+    /**
+     * Reads one element as a string value: its text content, or {@code ""} when it has element
+     * children of its own.
+     *
+     * <p>
+     * Q13 (2026-09-11). XML is untyped, so the JSON shapes the ruling names — a null, a number — do
+     * not exist here: every leaf is text and reads back as text. The one shape that is not a string
+     * is an element with element children, whose {@code getTextContent()} is the <i>concatenation
+     * of its descendants' text</i>, i.e. a value no single element ever carried.
+     * {@code <terms><x>1</x></terms>} used to read back as the term {@code "1"}; it now answers
+     * empty, which is what the JSON implementations answer for the object it corresponds to.
+     * </p>
+     *
+     * <p>
+     * ⚠ Deliberately <b>not</b> {@link #isComplexElement(Element)}: that also calls an element with
+     * a plain attribute complex, and using it here would have emptied the text of every
+     * {@code xml:lang}-tagged description in a document — a silent loss of exactly the kind this
+     * ruling exists to prevent.
+     * </p>
+     *
+     * @param aElement
+     *            the element to read.
+     * @return the element's own text, or {@code ""} when it has element children.
+     */
+    static String textValueOf(Element aElement)
+    {
+        return hasElementChildren(aElement) ? "" : aElement.getTextContent();
     }
 
 
@@ -518,7 +555,7 @@ public final class XmlElementResource implements ApiResource
             @Override
             public String get(int index)
             {
-                return children.get(index).getTextContent();
+                return textValueOf(children.get(index));
             }
 
 
@@ -583,6 +620,45 @@ public final class XmlElementResource implements ApiResource
     // --- Object overrides ---
 
 
+    /**
+     * Unwraps a domain-typed proxy handed out by the two-argument {@code of} factory to the
+     * {@code XmlElementResource} it delegates to, so that {@link #equals(Object)} sees the same
+     * object on both sides of a comparison.
+     *
+     * <p>
+     * Without this, {@code equals} was broken for every proxy this class produces. A proxy's own
+     * {@code equals} is dispatched to the invocation handler, which forwards it as
+     * {@code delegate.equals(theProxy)} — and the proxy is not a {@code XmlElementResource}, so the
+     * {@code instanceof} test below failed. The consequences were not subtle: {@code x.equals(x)}
+     * was <b>false</b> for a proxy, which silently breaks {@code List.contains},
+     * {@code List.indexOf}, {@code List.remove(Object)}, {@code Set} de-duplication and
+     * {@code Stream.distinct} — each of them then reporting "not found" or "no duplicate" instead
+     * of failing. Comparison was asymmetric too: {@code proxy.equals(plain)} was {@code true} while
+     * {@code plain.equals(proxy)} was {@code false}. {@link #hashCode()} has always hashed the
+     * delegate, so it was already consistent with the value-based equality restored here.
+     * </p>
+     *
+     * <p>
+     * Only proxies produced by <i>this</i> class are unwrapped: the handler type tested below is
+     * private to it, so a proxy from another resource implementation, or any unrelated dynamic
+     * proxy, is returned untouched and compares unequal exactly as before.
+     * </p>
+     *
+     * @param aOther
+     *            the object being compared against.
+     * @return the delegate behind one of this class's proxies, or {@code aOther} unchanged.
+     */
+    private static Object unwrapProxy(Object aOther)
+    {
+        if (Proxy.isProxyClass(aOther.getClass())
+                && Proxy.getInvocationHandler(aOther) instanceof ResourceInvocationHandler handler)
+        {
+            return handler.delegate();
+        }
+        return aOther;
+    }
+
+
     @Override
     public boolean equals(Object o)
     {
@@ -590,7 +666,7 @@ public final class XmlElementResource implements ApiResource
         {
             return true;
         }
-        if (o instanceof XmlElementResource other)
+        if (o != null && unwrapProxy(o) instanceof XmlElementResource other)
         {
             return element.equals(other.element);
         }

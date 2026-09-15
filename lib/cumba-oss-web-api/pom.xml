@@ -41,6 +41,48 @@
 
     <properties>
         <mockito.agent>-javaagent:${org.mockito:mockito-core:jar}</mockito.agent>
+
+        <!-- Exclude the OpenAPI-spec splitter dev tool from mutation; it is a
+             file-I/O main() that pollutes the CWD when mutated. -->
+        <pitest.excludedClasses>net.cumba.web.api.tools.SplitOpenApiSpec*</pitest.excludedClasses>
+
+        <!--
+            Quality floors for this module, from a COLD full-module measurement on 2026-09-11,
+            re-measured cold the same day after the resource-agreement and cache-key rulings:
+
+              932 mutants - 920 KILLED, 11 SURVIVED, 1 NO_COVERAGE, 0 TIMED_OUT
+              mutation kill 98.71 %  ·  test strength 98.82 %
+              pitest line coverage (mutated classes) 1289/1318 = 97.80 %
+              JaCoCo line 0.9792
+
+            Each floor is the measured figure minus two points, and each is set against the
+            KILLED-ONLY rate: pitest scores TIMED_OUT and RUN_ERROR as kills, so a floor set
+            against its headline can be met without a single new assertion. There were no
+            timeouts here, so the honest and the headline rates coincide - which is why they
+            can be compared directly with a later run's headline without further arithmetic.
+
+            ⛔ A FLOOR IS NEVER LOWERED. If a change drops this module below one of these, the
+            change is wrong or its tests are missing - not the floor. Re-basing a gate downward
+            every time it bites is how a gate stops being one.
+
+            All 12 residual mutants are accounted for: ten are argued EQUIVALENT (five NodeList
+            loop bounds that cannot differ because item() is null past the end and every body is
+            instanceof-guarded; two no-op boolean-return mutants on literal `return true` /
+            `return false`; the b<0 byte scan, which differs only at b==0 where both branches
+            agree; Link.id's aIndex>0, unreachable because aIndex==0 returns earlier; and
+            shortenCacheKey's loop bound, which the key-length arithmetic makes unreachable), and
+            two are the file-handle close in GzipFileApiCache.openCacheFileStream, which has no
+            seam through which a test could observe it.
+
+            ⚠ The measurement and the residual accounting are an INTERNAL record; this repository
+            carries the numbers, not the path to them. The module is a real twin (26 main files on
+            both sides) and every test behind these figures is present here, so they apply
+            unchanged.
+        -->
+        <pitest.mutation.target>96</pitest.mutation.target>
+        <pitest.coverage.target>95</pitest.coverage.target>
+        <pitest.test.strength.target>96</pitest.test.strength.target>
+        <jacoco.line.coverage>0.95</jacoco.line.coverage>
     </properties>
 
     <dependencies>

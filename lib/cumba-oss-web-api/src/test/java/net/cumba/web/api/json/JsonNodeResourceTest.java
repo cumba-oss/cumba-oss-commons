@@ -294,13 +294,17 @@ class JsonNodeResourceTest
 
 
         @Test
-        void getIntReturnsValueForDoubleField()
+        void getIntReturnsEmptyForDoubleField()
         {
             ObjectNode node = mapper.createObjectNode();
             node.put("value", 3.14);
             ApiResource r = JsonNodeResource.of(node);
-            // isNumber() is true for doubles, asInt() truncates
-            assertEquals(3, r.getInt("value").orElse(-1));
+            // Changed 2026-09-11. This test used to assert 3, with the comment "isNumber() is
+            // true for doubles, asInt() truncates" - it described the mechanism of a defect as
+            // though it were the design. XmlElementResource.getInt, the other implementation of
+            // this same interface method, had already been corrected under F-webapi-03 and
+            // answers empty here; the two disagreed on the same value.
+            assertTrue(r.getInt("value").isEmpty());
         }
 
 

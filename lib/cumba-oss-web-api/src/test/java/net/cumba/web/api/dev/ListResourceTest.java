@@ -112,10 +112,14 @@ class ListResourceTest
 
 
         @Test
-        void getStringCallsToStringForNonStrings()
+        void getStringDoesNotCallToStringForNonStrings()
         {
-            // ListResource's getString uses Object.toString(), so numbers are accepted.
-            assertEquals(Optional.of("42"), new ListResource(List.of(42)).getString(0));
+            // Reversed by the Q13 ruling of 2026-09-11: the interface contract is "empty if the
+            // element is missing or not textual", and JsonArrayResource has always honoured it.
+            // A fixture holding the number 42 used to read back as "42" here, so it passed a test
+            // the live JSON path would have failed.
+            assertEquals(Optional.empty(), new ListResource(List.of(42)).getString(0));
+            assertEquals(Optional.of("42"), new ListResource(List.of("42")).getString(0));
         }
 
 
@@ -148,16 +152,22 @@ class ListResourceTest
 
 
         @Test
-        void isIntReturnsTrueForDouble()
+        void isIntReturnsFalseForDouble()
         {
-            assertTrue(new ListResource(List.of(3.14)).isInt(0));
+            // Changed 2026-09-11: this test used to assert TRUE, pinning the defect that
+            // F-webapi-03 had already ruled against elsewhere - isInt, isLong and isDouble were
+            // one and the same `instanceof Number` test. A fractional value is not an int.
+            assertFalse(new ListResource(List.of(3.14)).isInt(0));
         }
 
 
         @Test
-        void isIntReturnsTrueForLong()
+        void isIntReturnsFalseForLongBeyondIntRange()
         {
-            assertTrue(new ListResource(List.of(9_999_999_999L)).isInt(0));
+            // Changed 2026-09-11: this used to assert TRUE. 9_999_999_999 does not fit an int,
+            // and getInt answered 1215752191 for it - a different number, reported as a success.
+            assertFalse(new ListResource(List.of(9_999_999_999L)).isInt(0));
+            assertTrue(new ListResource(List.of(9_999_999_999L)).getInt(0).isEmpty());
         }
 
 
@@ -183,9 +193,10 @@ class ListResourceTest
 
 
         @Test
-        void getIntReturnsValueForDouble()
+        void getIntReturnsEmptyForDouble()
         {
-            assertEquals(3, new ListResource(List.of(3.7)).getInt(0).orElse(-1));
+            // Changed 2026-09-11: this used to assert 3, pinning the silent truncation of 3.7.
+            assertTrue(new ListResource(List.of(3.7)).getInt(0).isEmpty());
         }
 
 
@@ -506,24 +517,31 @@ class ListResourceTest
     {
 
         @Test
-        void getStringListReturnsToStringOfElements()
+        void getStringListEmptiesWhatIsNotAString()
         {
+            // Reversed by the Q13 ruling of 2026-09-11: the number 42 used to become the string
+            // "42", which on the controlled-terminology path is a vocabulary silently gaining a
+            // term nobody published. The element keeps its position and answers empty.
             List<String> result = new ListResource(List.of(List.of("x", 42, "y"))).getStringList(0);
             assertEquals(3, result.size());
             assertEquals("x", result.get(0));
-            assertEquals("42", result.get(1));
+            assertEquals("", result.get(1));
             assertEquals("y", result.get(2));
         }
 
 
         @Test
-        void getStringListReturnsNullForNullElement()
+        void getStringListReturnsEmptyForNullElement()
         {
+            // Reversed by the Q13 ruling of 2026-09-11. A null used to become a null entry inside
+            // a declared List<String> — a NullAway suppression apologised for it in production —
+            // where JsonNodeResource rendered the same JSON null as the literal "null". Both now
+            // answer the empty string.
             List<String> result = new ListResource(List.of(Arrays.asList("a", null, "b")))
                     .getStringList(0);
             assertEquals(3, result.size());
             assertEquals("a", result.get(0));
-            assertEquals(null, result.get(1));
+            assertEquals("", result.get(1));
             assertEquals("b", result.get(2));
         }
 

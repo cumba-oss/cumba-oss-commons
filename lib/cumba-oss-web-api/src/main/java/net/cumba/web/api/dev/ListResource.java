@@ -3,6 +3,7 @@ package net.cumba.web.api.dev;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.math.BigInteger;
 import java.util.AbstractList;
 import java.util.Collections;
 import java.util.List;
@@ -117,50 +118,100 @@ public class ListResource implements ApiArrayResource
     @Override
     public Optional<String> getString(int aIndex)
     {
+        // Q13 (2026-09-11): a value that is not a string is not read as one - the same rule, and
+        // the same reason, as MapResource.getString. isString(int) already answered
+        // instanceof String, so the predicate and its accessor now agree.
         Object val = safeGet(aIndex);
-        if (val == null)
+        return val instanceof String text ? Optional.of(text) : Optional.empty();
+    }
+
+
+    /**
+     * Returns the value as an exact integer, or {@code null} when it is not an integer.
+     *
+     * <p>
+     * Q12 (2026-09-11), <i>strict on both sides</i>: what counts as an integer is the value's
+     * <b>type</b>, not whether its fraction happens to be zero. A {@link Double} {@code 3.0} is a
+     * floating-point value and answers {@code null} here, because that is what
+     * {@code JsonNodeResource} answers for the JSON {@code 3.0} (Jackson types it
+     * {@code DoubleNode}, whose {@code isIntegralNumber()} is false) and what
+     * {@code XmlElementResource} answers for the text {@code "3.0"} ({@code Long.parseLong} rejects
+     * it). Until this was tightened, a map-backed resource read {@code 3.0} as the int {@code 3}
+     * while the other four implementations of the same method answered empty.
+     * </p>
+     *
+     * <p>
+     * The accepted types mirror Jackson's {@code isIntegralNumber()} exactly, so a fixture built by
+     * hand answers what the same document answers once it has been through the parser. Any other
+     * {@link Number} — including {@code BigDecimal}, {@code NaN} and the infinities, and any
+     * third-party implementation whose value this class cannot read exactly — answers {@code null}
+     * rather than a converted approximation.
+     * </p>
+     */
+    private static @Nullable BigInteger exactInteger(@Nullable Object aValue)
+    {
+        if (aValue instanceof BigInteger big)
         {
-            return Optional.empty();
+            return big;
         }
-        return Optional.of(val.toString());
+        if (aValue instanceof Byte || aValue instanceof Short || aValue instanceof Integer
+                || aValue instanceof Long)
+        {
+            return BigInteger.valueOf(((Number) aValue).longValue());
+        }
+        return null;
+    }
+
+
+    /** Reports whether an exact integer fits the given inclusive range. */
+    private static boolean fits(@Nullable BigInteger aValue, long aMin, long aMax)
+    {
+        return aValue != null && aValue.compareTo(BigInteger.valueOf(aMin)) >= 0
+                && aValue.compareTo(BigInteger.valueOf(aMax)) <= 0;
     }
 
 
     @Override
     public boolean isInt(int aIndex)
     {
-        return safeGet(aIndex) instanceof Number;
+        // F-webapi-03: an integer that does not fit a Java int is not an int, and neither is a
+        // fractional value. Without this, the three predicates isInt / isLong / isDouble were
+        // byte-identical `instanceof Number`, so isInt(9_999_999_999L) answered true and getInt
+        // then handed back 1215752191 - a different number, reported as a success.
+        return fits(exactInteger(safeGet(aIndex)), Integer.MIN_VALUE, Integer.MAX_VALUE);
     }
 
 
     @Override
     public OptionalInt getInt(int aIndex)
     {
-        Object val = safeGet(aIndex);
-        if (val instanceof Number num)
+        BigInteger val = exactInteger(safeGet(aIndex));
+        if (!fits(val, Integer.MIN_VALUE, Integer.MAX_VALUE))
         {
-            return OptionalInt.of(num.intValue());
+            // F-webapi-03: no silent narrowing and no silent truncation - exactly the values
+            // isInt rejects.
+            return OptionalInt.empty();
         }
-        return OptionalInt.empty();
+        return OptionalInt.of(val.intValue());
     }
 
 
     @Override
     public boolean isLong(int aIndex)
     {
-        return safeGet(aIndex) instanceof Number;
+        return fits(exactInteger(safeGet(aIndex)), Long.MIN_VALUE, Long.MAX_VALUE);
     }
 
 
     @Override
     public OptionalLong getLong(int aIndex)
     {
-        Object val = safeGet(aIndex);
-        if (val instanceof Number num)
+        BigInteger val = exactInteger(safeGet(aIndex));
+        if (!fits(val, Long.MIN_VALUE, Long.MAX_VALUE))
         {
-            return OptionalLong.of(num.longValue());
+            return OptionalLong.empty();
         }
-        return OptionalLong.empty();
+        return OptionalLong.of(val.longValue());
     }
 
 
@@ -271,15 +322,14 @@ public class ListResource implements ApiArrayResource
         return new AbstractList<>()
         {
 
-            // NullAway: the ApiArrayResource#getStringList contract returns List<String> with
-            // non-null elements, but a null source element is mapped to a null entry to preserve
-            // positional alignment with the backing list (pre-existing behaviour).
-            @SuppressWarnings("NullAway")
             @Override
             public String get(int index)
             {
-                Object element = childList.get(index);
-                return element != null ? element.toString() : null;
+                // Q13 (2026-09-11): an element that is not a string answers the empty string and
+                // keeps its position. It used to answer toString(), so a null became a null entry
+                // inside a List<String> - which is what the NullAway suppression removed here was
+                // apologising for - and the number 7 became the term "7".
+                return childList.get(index) instanceof String text ? text : "";
             }
 
 
@@ -301,6 +351,45 @@ public class ListResource implements ApiArrayResource
     // --- Object overrides ---
 
 
+    /**
+     * Unwraps a domain-typed proxy handed out by the two-argument {@code of} factory to the
+     * {@code ListResource} it delegates to, so that {@link #equals(Object)} sees the same object on
+     * both sides of a comparison.
+     *
+     * <p>
+     * Without this, {@code equals} was broken for every proxy this class produces. A proxy's own
+     * {@code equals} is dispatched to the invocation handler, which forwards it as
+     * {@code delegate.equals(theProxy)} — and the proxy is not a {@code ListResource}, so the
+     * {@code instanceof} test below failed. The consequences were not subtle: {@code x.equals(x)}
+     * was <b>false</b> for a proxy, which silently breaks {@code List.contains},
+     * {@code List.indexOf}, {@code List.remove(Object)}, {@code Set} de-duplication and
+     * {@code Stream.distinct} — each of them then reporting "not found" or "no duplicate" instead
+     * of failing. Comparison was asymmetric too: {@code proxy.equals(plain)} was {@code true} while
+     * {@code plain.equals(proxy)} was {@code false}. {@link #hashCode()} has always hashed the
+     * delegate, so it was already consistent with the value-based equality restored here.
+     * </p>
+     *
+     * <p>
+     * Only proxies produced by <i>this</i> class are unwrapped: the handler type tested below is
+     * private to it, so a proxy from another resource implementation, or any unrelated dynamic
+     * proxy, is returned untouched and compares unequal exactly as before.
+     * </p>
+     *
+     * @param aOther
+     *            the object being compared against.
+     * @return the delegate behind one of this class's proxies, or {@code aOther} unchanged.
+     */
+    private static Object unwrapProxy(Object aOther)
+    {
+        if (Proxy.isProxyClass(aOther.getClass()) && Proxy
+                .getInvocationHandler(aOther) instanceof ArrayResourceInvocationHandler handler)
+        {
+            return handler.delegate();
+        }
+        return aOther;
+    }
+
+
     @Override
     public boolean equals(Object o)
     {
@@ -308,7 +397,7 @@ public class ListResource implements ApiArrayResource
         {
             return true;
         }
-        if (o instanceof ListResource other)
+        if (o != null && unwrapProxy(o) instanceof ListResource other)
         {
             return list.equals(other.list);
         }
