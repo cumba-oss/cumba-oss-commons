@@ -21,7 +21,12 @@ public class URIHelper
         {
             return null;
         }
-        String path = aUri.getPath();
+        // Opaque URIs (e.g. jar:file:/x.jar!/y.cdt, mailto:…) carry their content in the
+        // scheme-specific part, not in the path — getPath() is null for them — so, exactly as
+        // replaceFragment does, read getSchemeSpecificPart() instead. That accessor already
+        // excludes the fragment, so "jar:file:/x.jar!/y.cdt#TABLE1" behaves like the
+        // fragment-free URI here too.
+        String path = aUri.isOpaque() ? aUri.getSchemeSpecificPart() : aUri.getPath();
         return CDT.getAfterLast(path, '/');
     }
 
