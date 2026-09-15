@@ -17,7 +17,8 @@ import java.util.function.UnaryOperator;
  * <li>{@code ${env:NAME}} — the environment variable {@code NAME} only.
  * <li>{@code ${sys:name}} — the system property {@code name} only.
  * <li>{@code ${...:-default}} — any of the above, using the literal {@code default} when the
- * reference is unset or empty (shell {@code :-} semantics).
+ * reference is unset or empty (shell {@code :-} semantics, including their laziness: the default is
+ * resolved only when it is actually used).
  * <li>{@code $$} — a literal {@code $}.
  * </ul>
  *
@@ -145,19 +146,24 @@ public final class VariableResolver
 
     private String resolveToken(String token, Path source, String wholeValue)
     {
-        // Resolve nested references inside the token first, so both the variable name and the
-        // ':-default' may themselves contain ${...} (e.g. ${env:X:-${bootstrap.dir}}). Looked-up
-        // values are NOT re-resolved, so a value that happens to contain ${...} cannot recurse.
-        String resolvedToken = resolve(token, source);
-
-        String spec = resolvedToken;
-        String defaultValue = null;
-        int dd = resolvedToken.indexOf(DEFAULT_SEPARATOR);
+        // Split on the ':-' BEFORE resolving anything. Both halves may themselves contain ${...}
+        // (e.g. ${env:X:-${bootstrap.dir}}) and each is resolved on its own, which buys two
+        // properties the old resolve-then-split order did not have:
+        //
+        // 1. the default is evaluated only when it is needed, as in the shell. '${env:A:-${env:B}}'
+        // must yield A when A is set, not fail because B happens to be unset;
+        // 2. a ':-' arriving inside a looked-up VALUE is never mistaken for the separator.
+        //
+        // A looked-up value is still not re-resolved, so no value can trigger recursion.
+        String specText = token;
+        String defaultText = null;
+        int dd = separatorIndex(token);
         if (dd >= 0)
         {
-            spec = resolvedToken.substring(0, dd);
-            defaultValue = resolvedToken.substring(dd + DEFAULT_SEPARATOR.length());
+            specText = token.substring(0, dd);
+            defaultText = token.substring(dd + DEFAULT_SEPARATOR.length());
         }
+        String spec = resolve(specText, source);
 
         String resolved;
         if (spec.startsWith(ENV_PREFIX))
@@ -177,9 +183,9 @@ public final class VariableResolver
 
         if (resolved == null || resolved.isEmpty())
         {
-            if (defaultValue != null)
+            if (defaultText != null)
             {
-                return defaultValue;
+                return resolve(defaultText, source);
             }
             if (resolved == null)
             {
@@ -188,6 +194,39 @@ public final class VariableResolver
             }
         }
         return resolved;
+    }
+
+
+    /**
+     * Finds the {@code :-} that separates a reference's name from its default, ignoring any that
+     * sits inside a nested {@code ${...}} group — {@code ${${a:-b}}} has no top-level separator,
+     * its inner reference does.
+     *
+     * @param token
+     *            the raw token between the outer braces
+     * @return the index of the separator, or {@code -1} when the token has no default
+     */
+    private static int separatorIndex(String token)
+    {
+        int depth = 0;
+        for (int i = 0; i < token.length(); i++)
+        {
+            char c = token.charAt(i);
+            if (c == '$' && i + 1 < token.length() && token.charAt(i + 1) == '{')
+            {
+                depth++;
+                i++;
+            }
+            else if (c == '}')
+            {
+                depth--;
+            }
+            else if (depth == 0 && c == ':' && i + 1 < token.length() && token.charAt(i + 1) == '-')
+            {
+                return i;
+            }
+        }
+        return -1;
     }
 
 

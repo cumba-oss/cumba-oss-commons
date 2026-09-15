@@ -7,6 +7,7 @@ import java.lang.reflect.Modifier;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.CodeSource;
@@ -130,9 +131,9 @@ public final class Launcher
         }
 
         String fromManifest = manifestMainClass(protectionDomain);
-        if (fromManifest != null && !fromManifest.isBlank())
+        if (fromManifest != null)
         {
-            return fromManifest.strip();
+            return fromManifest;
         }
 
         throw new BootstrapException("no target main class: set '[bootstrap] main-class' in "
@@ -190,8 +191,17 @@ public final class Launcher
      * failure rather than a launcher ({@link BootstrapException}) failure. {@link Error}s are
      * rethrown directly; a {@code null} cause (legal but exotic) yields the original
      * {@link InvocationTargetException}.
+     *
+     * <p>
+     * Package-private rather than private so the two exotic branches — a {@code null} cause and a
+     * cause that is neither {@link Error} nor {@link Exception} — can be asserted directly.
+     * {@link java.lang.reflect.Method#invoke} cannot be made to produce either of them.
+     *
+     * @param e
+     *            the reflection wrapper caught from {@code main.invoke}
+     * @return the exception to throw in its place
      */
-    private static Exception launderTargetException(InvocationTargetException e)
+    static Exception launderTargetException(InvocationTargetException e)
     {
         Throwable cause = e.getCause();
         if (cause == null)
@@ -218,6 +228,20 @@ public final class Launcher
     }
 
 
+    /**
+     * Reads the {@value #MANIFEST_MAIN_CLASS_ATTRIBUTE} header from the launcher's own jar.
+     *
+     * <p>
+     * Every way of not having one — no code source, a location that is not a filesystem path, an
+     * exploded directory, an unreadable jar, no manifest, no header, a blank header — is reported
+     * the same way, as {@code null}. The fallback is optional by design, so "cannot read it" means
+     * "there isn't one" and the caller reports the missing main class; validating here rather than
+     * at the call site keeps that single meaning in one place.
+     *
+     * @param protectionDomain
+     *            the launcher's protection domain
+     * @return the declared main class, stripped and guaranteed non-blank, or {@code null}
+     */
     private static @Nullable String manifestMainClass(ProtectionDomain protectionDomain)
     {
         CodeSource codeSource = protectionDomain.getCodeSource();
@@ -230,8 +254,12 @@ public final class Launcher
         {
             jar = Path.of(codeSource.getLocation().toURI());
         }
-        catch (URISyntaxException e)
+        catch (URISyntaxException | IllegalArgumentException | FileSystemNotFoundException e)
         {
+            // Same reasoning as ConfigLocator.jarLocation: a code source that is not a filesystem
+            // path (a 'jar:' URL from a nested-jar loader, say) makes Path.of throw an unchecked
+            // FileSystemNotFoundException. Here the manifest is only a fallback, so 'not readable'
+            // simply means 'no header' and the caller reports the missing main class.
             return null;
         }
         if (!Files.isRegularFile(jar))
@@ -241,8 +269,12 @@ public final class Launcher
         try (JarFile jarFile = new JarFile(jar.toFile()))
         {
             Manifest manifest = jarFile.getManifest();
-            return manifest == null ? null
-                    : manifest.getMainAttributes().getValue(MANIFEST_MAIN_CLASS_ATTRIBUTE);
+            if (manifest == null)
+            {
+                return null;
+            }
+            String header = manifest.getMainAttributes().getValue(MANIFEST_MAIN_CLASS_ATTRIBUTE);
+            return header == null || header.isBlank() ? null : header.strip();
         }
         catch (IOException e)
         {

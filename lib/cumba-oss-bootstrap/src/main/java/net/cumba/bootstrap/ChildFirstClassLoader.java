@@ -22,6 +22,15 @@ import org.jspecify.annotations.Nullable;
 final class ChildFirstClassLoader extends URLClassLoader
 {
 
+    static
+    {
+        // loadClass below already uses the per-name getClassLoadingLock idiom, but without this
+        // registration ClassLoader hands back 'this' for every name, so all class loading in a
+        // multi-threaded target serialises on one monitor. URLClassLoader is parallel capable, so
+        // the registration succeeds.
+        registerAsParallelCapable();
+    }
+
     ChildFirstClassLoader(URL[] urls, ClassLoader parent)
     {
         super(urls, parent);

@@ -2,6 +2,8 @@ package net.cumba.bootstrap;
 
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.FileSystemNotFoundException;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
@@ -47,14 +49,30 @@ public final class ConfigLocator
      *            maps a system property name to its value (or {@code null})
      * @return the resolved config file path (existence is not checked here)
      * @throws BootstrapException
-     *             if no override is set and the launcher was not loaded from a jar
+     *             if the override is not a parseable path, or if no override is set and the
+     *             launcher was not loaded from a jar
      */
     public static Path locate(ProtectionDomain protectionDomain, UnaryOperator<String> sysLookup)
     {
         String override = sysLookup.apply(CONFIG_OVERRIDE_PROPERTY);
         if (override != null && !override.isBlank())
         {
-            return Path.of(override.strip());
+            String path = override.strip();
+            try
+            {
+                return Path.of(path);
+            }
+            catch (InvalidPathException e)
+            {
+                // Same defect as the one ClasspathBuilder guards against, reached through the
+                // other entry point: an operator-supplied string goes straight to a path parser,
+                // which rejects a NUL on UNIX and the whole reserved set <>:"|?* on Windows. The
+                // unchecked InvalidPathException escapes Bootstrap.main as a stack trace and exit
+                // 1, breaking the contract that a launcher-side failure is a 'bootstrap: ...'
+                // line and exit 2.
+                throw new BootstrapException("-D" + CONFIG_OVERRIDE_PROPERTY
+                        + " is not a valid path: '" + path + "' (" + e.getMessage() + ")", e);
+            }
         }
 
         Path jar = jarLocation(protectionDomain);
@@ -88,9 +106,14 @@ public final class ConfigLocator
         {
             return Path.of(location.toURI());
         }
-        catch (URISyntaxException e)
+        catch (URISyntaxException | IllegalArgumentException | FileSystemNotFoundException e)
         {
-            throw new BootstrapException("invalid launcher location: " + location, e);
+            // A code source need not be a plain file: a nested/executable-jar loader reports a
+            // 'jar:' URL, for which Path.of throws the unchecked FileSystemNotFoundException. Left
+            // uncaught it escapes as a stack trace and exit 1, breaking the launcher's contract
+            // that every launcher-side failure is a 'bootstrap: ...' line and exit 2.
+            throw new BootstrapException("launcher location is not a filesystem path: " + location
+                    + "; set -D" + CONFIG_OVERRIDE_PROPERTY + "=<path>", e);
         }
     }
 }
