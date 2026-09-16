@@ -61,6 +61,27 @@
             wrong or its tests are missing — not the floor.
         -->
         <jacoco.line.coverage>0.91</jacoco.line.coverage>
+
+        <!--
+            Mutation floors, measured COLD on THIS subset (2026-09-16), not carried over from
+            the internal twin: internal cumba-help gates at 96 / 95 / 96 over a larger file
+            set, and this subset measures below that - D3's reduction case, the same reason
+            the JaCoCo floor above is 0.91 rather than internal's 0.95.
+
+            Measured here: 161 mutants, 141 KILLED, 16 SURVIVED, 4 NO_COVERAGE
+            -> mutation coverage 88 % (87.6 % counting only KILLED), test strength 90 %
+            (89.8 % honest), pitest line coverage 94 %, JaCoCo line coverage 93.8 %.
+
+            Each floor is the measured figure minus about two points. They replace the root
+            pom's inherited 55 / 80 / 0 - and a test-strength floor of 0 cannot fail at any
+            score, which is why this module was gated on nothing until now.
+
+            ⛔ A floor is never lowered. Never pass -Dpitest.mutation.threshold or
+            -Djacoco.line.coverage on the command line; a CLI -D clobbers every module at once.
+        -->
+        <pitest.mutation.target>86</pitest.mutation.target>
+        <pitest.coverage.target>92</pitest.coverage.target>
+        <pitest.test.strength.target>88</pitest.test.strength.target>
     </properties>
 
     <dependencies>

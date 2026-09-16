@@ -48,6 +48,30 @@
              module's own floor, so a plain full-reactor `verify` gates it
              without the global -Djacoco.line.coverage clobber trap. -->
         <jacoco.line.coverage>0.85</jacoco.line.coverage>
+
+        <!--
+            Mutation floors, measured COLD on THIS subset (2026-09-16). This module is the
+            process entry point of two shipped distributions, and until now it was gated on
+            the root pom's inherited 55 / 80 / 0 - a test-strength floor of 0 cannot fail at
+            any score, so the twelve glob tests and three blank-entry tests that guard the
+            ported classpath fixes were holding nothing in place.
+
+            Measured here: 216 mutants, 206 KILLED, 2 TIMED_OUT, 1 RUN_ERROR, 5 SURVIVED,
+            2 NO_COVERAGE -> mutation coverage 97 % (95.4 % counting only KILLED), test
+            strength 98 % (96.3 % honest), pitest line coverage 93 %, JaCoCo line coverage
+            95.3 %.
+
+            Each floor is the measured figure minus about two points. ⚠ pitest scores
+            TIMED_OUT and RUN_ERROR as kills, so the honest KILLED-only rate above is the one
+            to reason about; the floors are set against what pitest itself compares, which is
+            the headline, rounded to an integer.
+
+            ⛔ A floor is never lowered. Never pass -Dpitest.mutation.threshold or
+            -Djacoco.line.coverage on the command line; a CLI -D clobbers every module at once.
+        -->
+        <pitest.mutation.target>95</pitest.mutation.target>
+        <pitest.coverage.target>91</pitest.coverage.target>
+        <pitest.test.strength.target>96</pitest.test.strength.target>
     </properties>
 
     <dependencies>
