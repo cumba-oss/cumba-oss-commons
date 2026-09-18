@@ -48,6 +48,13 @@ import net.cumba.web.api.http.HttpResponse;
  *            the response body as raw bytes (an empty array for an empty body; never {@code null}).
  * @see ApiCache
  */
+// [ArrayRecordComponent] is suppressed deliberately. The check objects to `byte[]` as a record
+// component because arrays are mutable and have identity equals/hashCode. Both are already
+// answered here: the class javadoc documents the non-copy as intentional (a response body must
+// not be duplicated on every read), and equals/hashCode/toString are overridden below to compare
+// and render the content by VALUE via java.util.Arrays. Changing the component's type would be a
+// published-API change, which this sweep does not make.
+@SuppressWarnings("ArrayRecordComponent")
 public record CacheEntry(int statusCode, Map<String, List<String>> headers, byte[] content)
 {
 

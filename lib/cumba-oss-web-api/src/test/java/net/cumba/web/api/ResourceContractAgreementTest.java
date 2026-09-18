@@ -264,7 +264,7 @@ class ResourceContractAgreementTest
 
     private static List<Object> devMixedTerms()
     {
-        return Arrays.asList("A", null, Map.of("x", 1), 7, Boolean.TRUE, List.of(1));
+        return Arrays.asList("A", null, Map.of("x", 1), 7, true, List.of(1));
     }
 
     @Nested

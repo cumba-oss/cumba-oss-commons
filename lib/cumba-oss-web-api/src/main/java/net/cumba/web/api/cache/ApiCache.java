@@ -433,7 +433,7 @@ public interface ApiCache
         for (byte raw : aKey.getBytes(StandardCharsets.UTF_8))
         {
             char ch = (char) (raw & 0xFF);
-            if (ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '.')
+            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.')
             {
                 encoded.append(ch);
             }

@@ -179,6 +179,13 @@ class ClientAndLinkBoundaryTest
         }
 
 
+        // [InputStreamSlowMultibyteRead] is suppressed deliberately. The check asks for an
+        // int read(byte[], int, int) override on performance grounds; this stream is a test
+        // double whose only job is to fail on the first byte, so there is no multi-byte read to
+        // be slow. Overriding it would not be behaviour-neutral either: the inherited
+        // implementation returns 0 for a zero-length request without calling read(), and an
+        // override that threw unconditionally would change that arm of the contract under test.
+        @SuppressWarnings("InputStreamSlowMultibyteRead")
         @Test
         void aBodyThatCannotBeReadSaysSoRatherThanLookingEmpty()
         {

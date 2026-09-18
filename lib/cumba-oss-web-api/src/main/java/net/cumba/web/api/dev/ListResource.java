@@ -186,7 +186,10 @@ public class ListResource implements ApiArrayResource
     public OptionalInt getInt(int aIndex)
     {
         BigInteger val = exactInteger(safeGet(aIndex));
-        if (!fits(val, Integer.MIN_VALUE, Integer.MAX_VALUE))
+        // The `val == null` arm is redundant with fits(), which already answers false for null -
+        // it is spelled out so the non-nullness of `val` below is established locally rather than
+        // through a helper, which no intra-procedural nullness analysis can see through.
+        if (val == null || !fits(val, Integer.MIN_VALUE, Integer.MAX_VALUE))
         {
             // F-webapi-03: no silent narrowing and no silent truncation - exactly the values
             // isInt rejects.
@@ -207,7 +210,7 @@ public class ListResource implements ApiArrayResource
     public OptionalLong getLong(int aIndex)
     {
         BigInteger val = exactInteger(safeGet(aIndex));
-        if (!fits(val, Long.MIN_VALUE, Long.MAX_VALUE))
+        if (val == null || !fits(val, Long.MIN_VALUE, Long.MAX_VALUE))
         {
             return OptionalLong.empty();
         }

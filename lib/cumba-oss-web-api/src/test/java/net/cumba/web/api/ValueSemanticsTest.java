@@ -121,7 +121,7 @@ class ValueSemanticsTest
                 {
                         Runnable.class
                 }, (p, m, args) -> "toString".equals(m.getName()) ? "alien"
-                        : "equals".equals(m.getName()) ? Boolean.FALSE : Integer.valueOf(0));
+                        : "equals".equals(m.getName()) ? false : Integer.valueOf(0));
         assertNotEquals(new MapResource(Map.of("k", "1")), alien);
         assertNotEquals(new ListResource(List.of("x")), alien);
     }

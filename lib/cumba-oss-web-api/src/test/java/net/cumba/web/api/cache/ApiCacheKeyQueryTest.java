@@ -405,7 +405,7 @@ class ApiCacheKeyQueryTest
             for (byte raw : aKey.getBytes(StandardCharsets.UTF_8))
             {
                 char ch = (char) (raw & 0xFF);
-                boolean kept = ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-'
+                boolean kept = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-'
                         || ch == '.' || ch == '/';
                 length += kept ? 1 : 3;
             }

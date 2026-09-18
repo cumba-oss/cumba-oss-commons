@@ -63,20 +63,18 @@ class XmlApiClientFactoryHardeningTest
         System.setProperty(PROPERTY, RecordingFactory.class.getName());
         assertNotNull(buildClient());
 
-        assertEquals(Boolean.TRUE, RecordingFactory.namespaceAware,
+        assertEquals(true, RecordingFactory.namespaceAware,
                 "namespace awareness is what makes local-name matching work at all");
-        assertEquals(Boolean.FALSE, RecordingFactory.xIncludeAware, "XInclude pulls in documents");
-        assertEquals(Boolean.FALSE, RecordingFactory.expandEntityReferences,
+        assertEquals(false, RecordingFactory.xIncludeAware, "XInclude pulls in documents");
+        assertEquals(false, RecordingFactory.expandEntityReferences,
                 "entity expansion is the billion-laughs vector");
 
         Map<String, Boolean> features = RecordingFactory.features;
-        assertEquals(Boolean.TRUE,
-                features.get("http://apache.org/xml/features/disallow-doctype-decl"));
-        assertEquals(Boolean.FALSE,
-                features.get("http://xml.org/sax/features/external-general-entities"));
-        assertEquals(Boolean.FALSE,
+        assertEquals(true, features.get("http://apache.org/xml/features/disallow-doctype-decl"));
+        assertEquals(false, features.get("http://xml.org/sax/features/external-general-entities"));
+        assertEquals(false,
                 features.get("http://xml.org/sax/features/external-parameter-entities"));
-        assertEquals(Boolean.TRUE, features.get(XMLConstants.FEATURE_SECURE_PROCESSING));
+        assertEquals(true, features.get(XMLConstants.FEATURE_SECURE_PROCESSING));
     }
 
 
