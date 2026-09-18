@@ -39,6 +39,9 @@
     </organization>
 
     <properties>
+        <!-- Repo-root anchor, depth 2 (see the root pom). -->
+        <repo.root.dir>${project.basedir}/../..</repo.root.dir>
+
         <pitest.mutation.target>95</pitest.mutation.target>
         <pitest.coverage.target>96</pitest.coverage.target>
         <pitest.test.strength.target>98</pitest.test.strength.target>

@@ -43,6 +43,9 @@
     </organization>
 
     <properties>
+        <!-- Repo-root anchor, depth 2 (see the root pom). -->
+        <repo.root.dir>${project.basedir}/../..</repo.root.dir>
+
         <mockito.agent>-javaagent:${org.mockito:mockito-core:jar}</mockito.agent>
         <!-- New module: enforce the plan's 0.85 line-coverage target via the
              module's own floor, so a plain full-reactor `verify` gates it

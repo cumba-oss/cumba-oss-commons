@@ -39,6 +39,9 @@
     </organization>
 
     <properties>
+        <!-- Repo-root anchor, depth 2 (see the root pom). -->
+        <repo.root.dir>${project.basedir}/../..</repo.root.dir>
+
         <mockito.agent>-javaagent:${org.mockito:mockito-core:jar}</mockito.agent>
         <!-- Coverage dropped from ~0.80 to ~0.79 after the engine-path strip
              removed 9 classes (each with its own well-covered test suite).
