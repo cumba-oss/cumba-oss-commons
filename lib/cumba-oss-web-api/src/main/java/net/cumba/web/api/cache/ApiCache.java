@@ -87,7 +87,7 @@ public interface ApiCache
      * fetched without a query will be served to a request that carries one. That is what the cache
      * already did before the query participated in the key, so it is not a regression — but the
      * query only truly participates once the stored entries have been re-keyed. See
-     * {@code plans/PLAN-api-cache-key-query-strings.md} § 5, phase 1.
+     * {@code plans/done/PLAN-api-cache-key-query-strings.md} § 5, phase 1.
      * </p>
      *
      * @param aRequest
@@ -305,8 +305,8 @@ public interface ApiCache
      * <p>
      * Empty by default — the conservative direction, since wrongly treating a parameter as
      * non-semantic merges two genuinely different bodies under one key, which is the very defect
-     * this method exists to avoid. See {@code plans/PLAN-api-cache-key-query-strings.md} § 2 before
-     * adding to it.
+     * this method exists to avoid. See {@code plans/done/PLAN-api-cache-key-query-strings.md} § 2
+     * before adding to it.
      * </p>
      *
      * @return the parameter names to ignore.

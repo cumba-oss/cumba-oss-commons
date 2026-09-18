@@ -26,7 +26,7 @@ import org.junit.jupiter.api.io.TempDir;
  * which the tail of a key is hashed.
  *
  * <p>
- * See {@code plans/PLAN-api-cache-key-query-strings.md}. Two requests differing only in query
+ * See {@code plans/done/PLAN-api-cache-key-query-strings.md}. Two requests differing only in query
  * string used to share one cache entry, so the first response was served for the second.
  * </p>
  */
