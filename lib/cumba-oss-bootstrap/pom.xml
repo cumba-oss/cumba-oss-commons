@@ -113,6 +113,31 @@
             <scope>test</scope>
         </dependency>
 
+
+        <!--
+            TEST SCOPE ONLY - the shipped jar stays JDK-only.
+
+            jimfs supplies an in-memory FileSystem whose Windows configuration
+            enforces the real Windows path rules, including the reserved-character
+            set (<>:"|?*) that makes Path.of reject every glob classpath entry.
+            That is the ONLY way this Linux build host can execute the Windows
+            half of ClasspathBuilder; without it the portability fix would ship
+            reasoned but never run. Verified faithful against the JDK sources
+            before use: jimfs throws InvalidPathException for '*'/'?' exactly as
+            sun.nio.fs.WindowsPathParser does, and its glob compiler maps '/'
+            onto the '\' separator while treating a literal '\' as the glob
+            escape, exactly as sun.nio.fs.Globs does.
+
+            Version is declared here rather than in the parent: no other module
+            uses jimfs, and the parent pom is shared with concurrent work.
+        -->
+        <dependency>
+            <groupId>com.google.jimfs</groupId>
+            <artifactId>jimfs</artifactId>
+            <version>1.3.0</version>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>
