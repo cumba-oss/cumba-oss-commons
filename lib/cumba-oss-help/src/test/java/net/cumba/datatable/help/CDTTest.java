@@ -485,4 +485,154 @@ class CDTTest
         assertThrows(NullPointerException.class, () -> CDT.getAfterLast("abc", (String) null));
     }
 
+    // ==================== ported from the internal twin (2026-09-20) ====================
+
+
+    @Test
+    void testContainsAnyArray()
+    {
+        String[] array =
+        {
+                "a", "b"
+        };
+        assertTrue(CDT.containsAny(array, "b", "d"));
+    }
+
+
+    @Test
+    void testContainsAnyCollectionList()
+    {
+        List<String> list = List.of("a", "b");
+        assertTrue(CDT.containsAny(list, List.of("c", "b")));
+    }
+
+
+    @Test
+    void testContainsAnyCollectionVarargs()
+    {
+        List<String> list = List.of("a", "b");
+        assertTrue(CDT.containsAny(list, "b", "c"));
+        assertFalse(CDT.containsAny(list, "d", "e"));
+    }
+
+
+    @Test
+    void testContainsAnyNone()
+    {
+        List<String> list = List.of("a");
+        assertFalse(CDT.containsAny(list, "x", "y"));
+    }
+
+
+    @Test
+    void testContainsDouble()
+    {
+        assertTrue(CDT.contains(2.0, 1.0, 2.0, 3.0));
+        assertFalse(CDT.contains(4.0, 1.0, 2.0, 3.0));
+    }
+
+
+    @Test
+    void testContainsEmptyArrays()
+    {
+        assertFalse(CDT.containsInt(1, (int[]) null));
+        assertFalse(CDT.containsInt(1, new int[0]));
+        assertFalse(CDT.containsLong(1L, (long[]) null));
+        assertFalse(CDT.containsLong(1L, new long[0]));
+        assertFalse(CDT.containsDouble(1.0, (double[]) null));
+        assertFalse(CDT.containsDouble(1.0, new double[0]));
+    }
+
+
+    @Test
+    void testContainsInt()
+    {
+        assertTrue(CDT.contains(2, 1, 2, 3));
+        assertFalse(CDT.contains(4, 1, 2, 3));
+    }
+
+
+    @Test
+    void testContainsLong()
+    {
+        assertTrue(CDT.contains(2L, 1L, 2L, 3L));
+        assertFalse(CDT.contains(4L, 1L, 2L, 3L));
+    }
+
+
+    @Test
+    void testContainsObject()
+    {
+        assertTrue(CDT.contains("b", "a", "b", "c"));
+        assertFalse(CDT.contains("d", "a", "b", "c"));
+    }
+
+
+    @Test
+    void testContainsObjectEmptyArray()
+    {
+        assertFalse(CDT.contains("a", new Object[0]));
+    }
+
+
+    @Test
+    void testContainsObjectNull()
+    {
+        assertTrue(CDT.contains(null, null, "a"));
+        assertFalse(CDT.contains(null, "a", "b"));
+    }
+
+
+    @Test
+    void testGetAfterFirstChar()
+    {
+        assertEquals("b.c", CDT.getAfterFirst("a.b.c", '.'));
+    }
+
+
+    @Test
+    void testGetAfterFirstCharNotFound()
+    {
+        assertEquals("abc", CDT.getAfterFirst("abc", '.'));
+    }
+
+
+    @Test
+    void testGetAfterFirstString()
+    {
+        assertEquals("b/c", CDT.getAfterFirst("a/b/c", "/"));
+
+        String result = CDT.getAfterFirst("abcfoobar", "foo");
+        assertEquals("bar", result);
+        assertNotEquals("foobar", result);
+    }
+
+
+    @Test
+    void testIsWhitespaceCharLetter()
+    {
+        assertFalse(CDT.isWhitespaceChar('a'));
+    }
+
+
+    @Test
+    void testIsWhitespaceCharNBSP()
+    {
+        assertTrue(CDT.isWhitespaceChar('\u00A0'));
+    }
+
+
+    @Test
+    void testIsWhitespaceCharSpace()
+    {
+        assertTrue(CDT.isWhitespaceChar(' '));
+    }
+
+
+    @Test
+    void testStream()
+    {
+        List<String> result = CDT.stream("a", "b", "c").toList();
+        assertEquals(3, result.size());
+    }
 }
