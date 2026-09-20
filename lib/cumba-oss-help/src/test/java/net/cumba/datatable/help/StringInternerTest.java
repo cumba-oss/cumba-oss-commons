@@ -6,7 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.ref.WeakReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class StringInternerTest
 {
@@ -145,5 +148,147 @@ class StringInternerTest
         // A freshly interned, still-referenced string remains canonical after the churn.
         String pinned = si.intern(new String("pinned"));
         assertSame(pinned, si.intern(new String("pinned")));
+    }
+
+    // ==================== merged from the internal twin, 2026-09-20 ====================
+    // ⭐ The two suites were INDEPENDENT DRIFT over a byte-identical class, with ZERO
+    // overlapping method names and different naming conventions. Neither was a subset, so
+    // overwriting either direction would have deleted real coverage. Owner ruled: merge.
+    // Above: the published suite (shard-count rounding, cross-shard stability at 2000 entries).
+    // Below: the internal suite (hash-collision distinction, weak-reference expunge with a GC
+    // budget). Names are left in their original conventions rather than harmonised, so each
+    // half stays greppable against the history it came from.
+
+
+    /** Build a fresh, non-pooled String with the given content. */
+    private static String fresh(String aContent)
+    {
+        return new String(aContent.toCharArray());
+    }
+
+
+    @Test
+    void nullInternsToNull()
+    {
+        assertNull(new StringInterner().intern(null));
+        assertNull(StringInterner.global(null));
+    }
+
+
+    @Test
+    void returnsEqualContent()
+    {
+        StringInterner interner = new StringInterner();
+        String canonical = interner.intern(fresh("STUDYID"));
+        assertEquals("STUDYID", canonical);
+    }
+
+
+    @Test
+    void equalContentReturnsSameInstance()
+    {
+        StringInterner interner = new StringInterner();
+        String a = interner.intern(fresh("PLACEBO"));
+        String b = interner.intern(fresh("PLACEBO"));
+        assertSame(a, b, "equal-content interning must return the identical canonical instance");
+    }
+
+
+    @Test
+    void firstArgumentBecomesCanonical()
+    {
+        StringInterner interner = new StringInterner();
+        String first = fresh("ADSL");
+        String returned = interner.intern(first);
+        assertSame(first, returned, "the first interned instance is kept as the canonical one");
+        assertSame(first, interner.intern(fresh("ADSL")));
+    }
+
+
+    @Test
+    void distinctValuesAreIndependentAndCounted()
+    {
+        StringInterner interner = new StringInterner(1);
+        for (int i = 0; i < 1000; i++)
+        {
+            String v = "VAL-" + i;
+            assertSame(interner.intern(fresh(v)), interner.intern(fresh(v)));
+        }
+        assertEquals(1000, interner.size());
+    }
+
+
+    @Test
+    void globalPoolIsShared()
+    {
+        String a = StringInterner.global(fresh("GLOBAL-SHARED-TOKEN"));
+        String b = StringInterner.global(fresh("GLOBAL-SHARED-TOKEN"));
+        assertSame(a, b);
+    }
+
+
+    @ParameterizedTest
+    @ValueSource(ints =
+    {
+            1, 2, 3, 8, 16
+    })
+    void worksWithVariousShardCounts(int aShardCount)
+    {
+        StringInterner interner = new StringInterner(aShardCount);
+        String a = interner.intern(fresh("SHARDED"));
+        String b = interner.intern(fresh("SHARDED"));
+        assertSame(a, b);
+    }
+
+
+    @Test
+    void hashCollisionsAreDistinguishedByContent()
+    {
+        // "Aa" and "BB" have the same String#hashCode() (2112) yet differ in content. They must end
+        // up as two distinct canonical entries, exercising the content comparison on a hash clash.
+        StringInterner interner = new StringInterner(1);
+        String aa = interner.intern(fresh("Aa"));
+        String bb = interner.intern(fresh("BB"));
+        assertEquals("Aa", aa);
+        assertEquals("BB", bb);
+        assertNotSame(aa, bb);
+        assertSame(aa, interner.intern(fresh("Aa")));
+        assertSame(bb, interner.intern(fresh("BB")));
+        assertEquals(2, interner.size());
+    }
+
+
+    @Test
+    void collectedEntriesAreExpunged() throws InterruptedException
+    {
+        StringInterner interner = new StringInterner(1);
+        String unique = new String(new char[]
+        {
+                'g', 'c', '-', 't', 'o', 'k', 'e', 'n'
+        });
+        WeakReference<String> ref = new WeakReference<>(interner.intern(unique));
+        unique = null;
+
+        boolean cleared = false;
+        for (int i = 0; i < 100 && !cleared; i++)
+        {
+            System.gc();
+            Thread.sleep(10);
+            cleared = ref.get() == null;
+        }
+
+        if (cleared)
+        {
+            // Touch the shard so the reference queue is drained, then confirm the dead entry is
+            // gone
+            // and re-interning the same content yields a brand-new canonical instance.
+            interner.intern(fresh("trigger-expunge"));
+            String reInterned = interner.intern(fresh("gc-token"));
+            assertEquals("gc-token", reInterned);
+            assertTrue(interner.size() <= 2,
+                    "collected entry must not linger after expunge; size=" + interner.size());
+        }
+        // If the GC declined to collect within the budget we simply skip the strict assertion to
+        // avoid a flaky test; the functional interning behaviour is covered by the other cases.
     }
 }
