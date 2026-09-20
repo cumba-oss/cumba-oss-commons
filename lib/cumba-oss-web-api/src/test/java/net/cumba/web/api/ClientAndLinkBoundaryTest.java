@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import net.cumba.web.api.cache.ApiCache;
 import net.cumba.web.api.cache.CacheEntry;
 import net.cumba.web.api.dev.MapResource;
@@ -179,13 +180,6 @@ class ClientAndLinkBoundaryTest
         }
 
 
-        // [InputStreamSlowMultibyteRead] is suppressed deliberately. The check asks for an
-        // int read(byte[], int, int) override on performance grounds; this stream is a test
-        // double whose only job is to fail on the first byte, so there is no multi-byte read to
-        // be slow. Overriding it would not be behaviour-neutral either: the inherited
-        // implementation returns 0 for a zero-length request without calling read(), and an
-        // override that threw unconditionally would change that arm of the contract under test.
-        @SuppressWarnings("InputStreamSlowMultibyteRead")
         @Test
         void aBodyThatCannotBeReadSaysSoRatherThanLookingEmpty()
         {
@@ -195,6 +189,24 @@ class ClientAndLinkBoundaryTest
                 @Override
                 public int read() throws IOException
                 {
+                    throw new IOException("disconnected");
+                }
+
+
+                // Overridden only to satisfy [InputStreamSlowMultibyteRead]. Behaviourally this
+                // reproduces the inherited implementation exactly: it bounds-checks, answers 0
+                // for a zero-length request, and otherwise calls read() for the first byte —
+                // which throws. The zero-length arm is not decoration: InputStream.read(byte[],
+                // int, int) returns 0 there WITHOUT reading, so throwing unconditionally would
+                // make this double stricter than the class it stands in for.
+                @Override
+                public int read(byte[] aBuffer, int aOffset, int aLength) throws IOException
+                {
+                    Objects.checkFromIndexSize(aOffset, aLength, aBuffer.length);
+                    if (aLength == 0)
+                    {
+                        return 0;
+                    }
                     throw new IOException("disconnected");
                 }
             };
