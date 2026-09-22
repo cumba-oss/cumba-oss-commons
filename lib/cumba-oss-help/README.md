@@ -2,9 +2,14 @@
 
 Cross-cutting utility helpers used by every other Cumba OSS module:
 `CDT` (null-safe string/collection helpers), `AsyncSupport` (a small
-`CompletableFuture` adapter that surfaces checked `IOException`s), and
+`CompletableFuture` adapter that surfaces checked `IOException`s),
 `URIHelper` (URI manipulation — fragment replacement, file-name
-extraction). The most foundational module in the project.
+extraction), `StringInterner` (a sharded, weak-reference `String`
+canonicaliser with `String.intern()` semantics, but without the JVM's
+single globally synchronised native table) and `GenericListView` (an
+unmodifiable, zero-copy `List` view whose elements are computed on
+access from an `IntFunction`). The most foundational module in the
+project.
 
 ## Maven coordinates
 
