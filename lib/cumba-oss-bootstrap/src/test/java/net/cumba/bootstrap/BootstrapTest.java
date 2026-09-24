@@ -167,4 +167,74 @@ class BootstrapTest
         assertFalse(text.isEditable());
         assertTrue(text.getText().contains("databrowser.conf:9: broken"));
     }
+
+
+    @Test
+    void aConfigThatIsNotUtf8IsReportedAsSuch() throws Exception
+    {
+        // "ANSI" / Windows-1252 with an umlaut: 0xE4 is not valid UTF-8.
+        Files.write(conf, "[bootstrap]\n# J\u00e4ger\nmain-class = a.B\n"
+                .getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+        UnaryOperator<String> sys = key -> ConfigLocator.CONFIG_OVERRIDE_PROPERTY.equals(key)
+                ? conf.toString()
+                : null;
+        BootstrapException ex = assertThrows(BootstrapException.class,
+                () -> Bootstrap.run(new String[0], getClass().getProtectionDomain(), sys));
+        assertTrue(ex.getMessage().contains("is not UTF-8 text"), ex::getMessage);
+    }
+
+
+    @Test
+    void anInterruptedDialogIsReportedAsNotShown()
+    {
+        try
+        {
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> Bootstrap.showErrorDialog("boom", _ ->
+                    {
+                        throw new InterruptedException();
+                    }));
+            assertTrue(Thread.currentThread().isInterrupted(), "the interrupt flag is restored");
+            assertTrue(ex.getMessage().contains("interrupted"));
+            assertFalse(Bootstrap.showErrorDialogIfEnabled("boom", _ -> "true", () -> false,
+                    m -> Bootstrap.showErrorDialog(m, _ ->
+                    {
+                        throw new InterruptedException();
+                    })));
+        }
+        finally
+        {
+            Thread.interrupted(); // clear the flag for the following tests
+        }
+    }
+
+
+    @Test
+    void aFailureInsideTheDialogBecomesUnchecked()
+    {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> Bootstrap.showErrorDialog("boom", _ ->
+                {
+                    throw new java.lang.reflect.InvocationTargetException(new AssertionError("x"));
+                }));
+        assertTrue(ex.getCause() instanceof AssertionError);
+    }
+
+
+    @Test
+    void theDialogTaskIsHandedToTheEdtRunner()
+    {
+        List<Runnable> tasks = new ArrayList<>();
+        Bootstrap.showErrorDialog("boom", tasks::add);
+        assertEquals(1, tasks.size(), "exactly one task; it is not run headless here");
+    }
+
+
+    @Test
+    void errorPaneIsAnErrorMessageWithTheWrappingText()
+    {
+        var pane = Bootstrap.errorPane("config broken");
+        assertEquals(javax.swing.JOptionPane.ERROR_MESSAGE, pane.getMessageType());
+        assertTrue(pane.getMessage() instanceof javax.swing.JTextArea);
+    }
 }

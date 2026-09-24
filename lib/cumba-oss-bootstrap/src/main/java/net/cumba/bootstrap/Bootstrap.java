@@ -3,6 +3,7 @@ package net.cumba.bootstrap;
 import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.MalformedInputException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
+import javax.swing.JDialog;
 import javax.swing.JOptionPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -51,6 +53,9 @@ public final class Bootstrap
      * @throws Exception
      *             any exception thrown by the target program (propagated as-is)
      */
+    // A lambda, not GraphicsEnvironment::isHeadless: a method reference is linked when the argument
+    // is evaluated, before the opt-in check, and would load java.desktop on every failed start.
+    @SuppressWarnings("PMD.LambdaCanBeMethodReference")
     public static void main(String[] args) throws Exception
     {
         try
@@ -61,7 +66,8 @@ public final class Bootstrap
         {
             System.err.println("bootstrap: " + e.getMessage());
             showErrorDialogIfEnabled(String.valueOf(e.getMessage()), System::getProperty,
-                    GraphicsEnvironment::isHeadless, Bootstrap::showErrorDialog);
+                    () -> GraphicsEnvironment.isHeadless(),
+                    message -> showErrorDialog(message, SwingUtilities::invokeAndWait));
             System.exit(2);
         }
     }
@@ -109,7 +115,8 @@ public final class Bootstrap
     static String errorDialogText(String message)
     {
         return "The application could not be started:\n\n" + message
-                + "\n\nIts launcher configuration is the .conf file next to the launcher jar.";
+                + "\n\nThe launcher's configuration is the .conf file named above (normally the one"
+                + " beside the launcher jar).";
     }
 
 
@@ -128,23 +135,53 @@ public final class Bootstrap
         return text;
     }
 
+    /**
+     * Runs a task on the event dispatch thread and waits: {@code SwingUtilities::invokeAndWait}.
+     */
+    @FunctionalInterface
+    interface EdtRunner
+    {
 
-    private static void showErrorDialog(String message)
+        void runAndWait(Runnable task) throws InterruptedException, InvocationTargetException;
+    }
+
+    /**
+     * Shows the error dialog through {@code edt}; any failure becomes an unchecked exception, which
+     * {@link #showErrorDialogIfEnabled} reports as "not shown".
+     */
+    static void showErrorDialog(String message, EdtRunner edt)
     {
         try
         {
-            SwingUtilities
-                    .invokeAndWait(() -> JOptionPane.showMessageDialog(null, errorTextArea(message),
-                            "Cannot start the application", JOptionPane.ERROR_MESSAGE));
+            edt.runAndWait(() -> showOnTop(message));
         }
         catch (InterruptedException e)
         {
             Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted before the error dialog was shown", e);
         }
         catch (InvocationTargetException e)
         {
             throw new IllegalStateException("error dialog failed", e.getCause());
         }
+    }
+
+
+    /** The option pane the dialog shows: an error icon and the wrapping message text. */
+    static JOptionPane errorPane(String message)
+    {
+        return new JOptionPane(errorTextArea(message), JOptionPane.ERROR_MESSAGE);
+    }
+
+
+    private static void showOnTop(String message)
+    {
+        // An ownerless dialog has no taskbar entry, and Windows' foreground lock can open it behind
+        // other windows while main() waits for it; keep it on top.
+        JDialog dialog = errorPane(message).createDialog("Cannot start the application");
+        dialog.setAlwaysOnTop(true);
+        dialog.setVisible(true);
+        dialog.dispose();
     }
 
 
@@ -185,6 +222,11 @@ public final class Bootstrap
             throw new BootstrapException("bootstrap config not found: " + configPath
                     + " (override with -D" + ConfigLocator.CONFIG_OVERRIDE_PROPERTY + "=<path>)",
                     e);
+        }
+        catch (MalformedInputException e)
+        {
+            throw new BootstrapException("bootstrap config " + configPath + " is not UTF-8 text"
+                    + " (save it as UTF-8; a byte-order mark is fine)", e);
         }
         catch (IOException e)
         {
