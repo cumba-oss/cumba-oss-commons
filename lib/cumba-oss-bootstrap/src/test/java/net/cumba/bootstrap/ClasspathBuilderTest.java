@@ -3,10 +3,12 @@ package net.cumba.bootstrap;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.abort;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -45,7 +47,12 @@ class ClasspathBuilderTest
         List<String> names = new ArrayList<>();
         for (URL url : urls)
         {
-            names.add(root.relativize(Path.of(url.toURI())).toString());
+            // Join with '/' rather than toString(): the separator is platform-specific, and on
+            // Windows this would read "sub\c.jar".
+            Path rel = root.relativize(Path.of(url.toURI()));
+            List<String> parts = new ArrayList<>();
+            rel.forEach(part -> parts.add(part.toString()));
+            names.add(String.join("/", parts));
         }
         return names;
     }
@@ -206,7 +213,16 @@ class ClasspathBuilderTest
     {
         // Files.walk reports a dangling symlink, but toRealPath cannot resolve it. The fallback
         // must still yield a usable absolute path — returning nothing there would drop the entry.
-        Files.createSymbolicLink(tmp.resolve("lib/dangling.jar"), tmp.resolve("lib/gone.jar"));
+        try
+        {
+            Files.createSymbolicLink(tmp.resolve("lib/dangling.jar"), tmp.resolve("lib/gone.jar"));
+        }
+        catch (FileSystemException | UnsupportedOperationException e)
+        {
+            // Windows without Developer Mode / SeCreateSymbolicLinkPrivilege cannot create links.
+            // That is a precondition of this test, not a defect in ClasspathBuilder.
+            abort("cannot create symbolic links here: " + e.getMessage());
+        }
 
         URL[] urls = builder(ErrorMode.WARN).build(List.of("lib/*.jar"));
 
