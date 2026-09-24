@@ -1,5 +1,7 @@
 package net.cumba.bootstrap;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -7,6 +9,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.UnaryOperator;
 import net.cumba.bootstrap.itmain.TestMain;
@@ -104,5 +107,64 @@ class BootstrapTest
         BootstrapException ex = assertThrows(BootstrapException.class,
                 () -> Bootstrap.run(new String[] {}, getClass().getProtectionDomain(), sys));
         assertTrue(ex.getMessage().contains("not loaded from a .jar"));
+    }
+
+
+    @Test
+    void errorDialogIsOffUnlessTheLauncherOptsIn()
+    {
+        List<String> shown = new ArrayList<>();
+        assertFalse(Bootstrap.showErrorDialogIfEnabled("boom", _ -> null, () -> false, shown::add));
+        assertFalse(
+                Bootstrap.showErrorDialogIfEnabled("boom", _ -> "false", () -> false, shown::add));
+        assertTrue(shown.isEmpty());
+    }
+
+
+    @Test
+    void errorDialogIsShownWhenOptedInWithADisplay()
+    {
+        List<String> shown = new ArrayList<>();
+        UnaryOperator<String> sys = k -> Bootstrap.ERROR_DIALOG_PROPERTY.equals(k) ? "true" : null;
+        assertTrue(Bootstrap.showErrorDialogIfEnabled("boom", sys, () -> false, shown::add));
+        assertEquals(List.of("boom"), shown);
+    }
+
+
+    @Test
+    void errorDialogIsNotShownHeadless()
+    {
+        List<String> shown = new ArrayList<>();
+        assertFalse(
+                Bootstrap.showErrorDialogIfEnabled("boom", _ -> "true", () -> true, shown::add));
+        assertTrue(shown.isEmpty());
+    }
+
+
+    @Test
+    void aFailingDialogNeverEscapes()
+    {
+        assertFalse(Bootstrap.showErrorDialogIfEnabled("boom", _ -> "true", () -> false, _ ->
+        {
+            throw new UnsatisfiedLinkError("no awt");
+        }));
+    }
+
+
+    @Test
+    void errorDialogTextCarriesTheFailure()
+    {
+        assertTrue(Bootstrap.errorDialogText("config broken").contains("config broken"));
+    }
+
+
+    @Test
+    void errorTextAreaWrapsAndIsReadOnly()
+    {
+        var text = Bootstrap.errorTextArea("/a/very/long/path/databrowser.conf:9: broken");
+        assertTrue(text.getLineWrap());
+        assertTrue(text.getWrapStyleWord());
+        assertFalse(text.isEditable());
+        assertTrue(text.getText().contains("databrowser.conf:9: broken"));
     }
 }

@@ -1,13 +1,20 @@
 package net.cumba.bootstrap;
 
+import java.awt.GraphicsEnvironment;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.ProtectionDomain;
 import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
+import javax.swing.JOptionPane;
+import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
 
 /**
  * Entry point of the launcher jar. Locates and parses the sidecar config, then delegates to
@@ -17,9 +24,19 @@ import java.util.function.UnaryOperator;
  * A launcher-side failure ({@link BootstrapException}) prints a concise {@code bootstrap: ...}
  * message to stderr and exits with status {@code 2}. Exceptions thrown by the target program itself
  * propagate unchanged so the target controls its own exit status.
+ *
+ * <p>
+ * A launcher without a console (a GUI launcher such as Launch4j's {@code gui} header or a jpackage
+ * application) opts in to also seeing that message in a dialog by setting the system property
+ * {@value #ERROR_DIALOG_PROPERTY}{@code =true}; without it, or without a display, nothing but
+ * stderr is used. It is a system property, not a config key, because the failure to report is often
+ * that the config itself cannot be read or parsed.
  */
 public final class Bootstrap
 {
+
+    /** System property that makes a launcher-side failure also show a dialog; see the class doc. */
+    public static final String ERROR_DIALOG_PROPERTY = "bootstrap.error.dialog";
 
     private Bootstrap()
     {
@@ -43,7 +60,90 @@ public final class Bootstrap
         catch (BootstrapException e)
         {
             System.err.println("bootstrap: " + e.getMessage());
+            showErrorDialogIfEnabled(String.valueOf(e.getMessage()), System::getProperty,
+                    GraphicsEnvironment::isHeadless, Bootstrap::showErrorDialog);
             System.exit(2);
+        }
+    }
+
+
+    /**
+     * Shows a launcher-side failure in a dialog, if {@value #ERROR_DIALOG_PROPERTY} is {@code true}
+     * and a display is available. Never throws: the message is already on stderr, and a dialog that
+     * fails must not replace it with a different failure.
+     *
+     * @param message
+     *            the failure, as printed to stderr
+     * @param sysLookup
+     *            maps a system property name to its value (or {@code null})
+     * @param headless
+     *            whether the JVM has no display
+     * @param dialog
+     *            shows the message
+     * @return {@code true} if the dialog was shown
+     */
+    static boolean showErrorDialogIfEnabled(String message, UnaryOperator<String> sysLookup,
+            BooleanSupplier headless, Consumer<String> dialog)
+    {
+        if (!Boolean.parseBoolean(sysLookup.apply(ERROR_DIALOG_PROPERTY))
+                || headless.getAsBoolean())
+        {
+            return false;
+        }
+        try
+        {
+            dialog.accept(message);
+            return true;
+        }
+        // Also Errors: a missing AWT native library surfaces as an UnsatisfiedLinkError or
+        // AWTError, and either would otherwise escape main in place of the real failure.
+        catch (RuntimeException | Error ex)
+        {
+            System.err.println("bootstrap: cannot show the error dialog: " + ex);
+            return false;
+        }
+    }
+
+
+    /** The dialog text: the failure, and where the configuration it usually concerns lives. */
+    static String errorDialogText(String message)
+    {
+        return "The application could not be started:\n\n" + message
+                + "\n\nIts launcher configuration is the .conf file next to the launcher jar.";
+    }
+
+
+    /**
+     * The dialog's message component: a wrapping, read-only text area. The message usually holds a
+     * long file path, which a plain {@code JOptionPane} label renders on one line wider than the
+     * screen; the text area wraps it, and lets the user select and copy it.
+     */
+    static JTextArea errorTextArea(String message)
+    {
+        JTextArea text = new JTextArea(errorDialogText(message), 0, 70);
+        text.setLineWrap(true);
+        text.setWrapStyleWord(true);
+        text.setEditable(false);
+        text.setOpaque(false);
+        return text;
+    }
+
+
+    private static void showErrorDialog(String message)
+    {
+        try
+        {
+            SwingUtilities
+                    .invokeAndWait(() -> JOptionPane.showMessageDialog(null, errorTextArea(message),
+                            "Cannot start the application", JOptionPane.ERROR_MESSAGE));
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+        }
+        catch (InvocationTargetException e)
+        {
+            throw new IllegalStateException("error dialog failed", e.getCause());
         }
     }
 

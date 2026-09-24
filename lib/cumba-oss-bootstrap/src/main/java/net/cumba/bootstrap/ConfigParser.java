@@ -57,7 +57,7 @@ public final class ConfigParser
 
         for (int i = 0; i < lines.size(); i++)
         {
-            String line = lines.get(i).strip();
+            String line = (i == 0 ? withoutByteOrderMark(lines.get(i)) : lines.get(i)).strip();
             if (line.isEmpty() || line.charAt(0) == '#' || line.charAt(0) == ';')
             {
                 continue;
@@ -89,6 +89,19 @@ public final class ConfigParser
         }
         return new BootstrapConfig(source, Optional.ofNullable(mainClass), mode, properties,
                 classpath);
+    }
+
+
+    /**
+     * The first line without a UTF-8 byte-order mark. Editors such as Windows Notepad ("UTF-8 with
+     * BOM") and PowerShell 5.1 ({@code Set-Content -Encoding UTF8}) write one; {@code strip()} does
+     * not remove U+FEFF, so it would otherwise turn a comment or section header on line 1 into an
+     * entry before any section.
+     */
+    static String withoutByteOrderMark(String firstLine)
+    {
+        return !firstLine.isEmpty() && firstLine.charAt(0) == '\uFEFF' ? firstLine.substring(1)
+                : firstLine;
     }
 
 

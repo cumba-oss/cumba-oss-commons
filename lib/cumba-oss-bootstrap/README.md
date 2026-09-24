@@ -36,7 +36,8 @@ java -Dbootstrap.config=/path/app.conf -jar cumba-oss-bootstrap.jar [args...]
 
 ## File format
 
-INI-style, parsed top-to-bottom. Lines whose first non-blank character
+INI-style, read as UTF-8 and parsed top-to-bottom; a UTF-8 byte-order mark at
+the start of the file is ignored. Lines whose first non-blank character
 is `#` or `;` are comments; blank lines are ignored. The `[classpath]`
 section holds bare path entries (one per line, **not** `key = value`) —
 which is why the file is named `.conf` rather than `.ini`.
@@ -140,6 +141,16 @@ classpath entry under `ERROR`, target class/main not found) prints a
 `bootstrap: ...` message to stderr and exits with status `2`. Otherwise
 the target program controls its own exit status; exceptions it throws
 propagate unchanged.
+
+### Error dialog (opt-in)
+
+A launcher with no console — Launch4j's `gui` header, a jpackage application —
+cannot show the `bootstrap: ...` line. Such a launcher sets
+`-Dbootstrap.error.dialog=true`, and the same message is then also shown in a
+dialog (when a display is available). It is a system property, not a config
+key, because the failure to report is often that the config itself cannot be
+read or parsed. Without it — the default, and what console and CLI launchers
+use — only stderr is written. The exit status is `2` either way.
 
 ## Trust model
 

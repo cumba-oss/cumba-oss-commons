@@ -156,4 +156,33 @@ class ConfigParserTest
         BootstrapConfig cfg = parse("[bootstrap]", "classloader = PARENT-FIRST");
         assertEquals(ClassLoaderMode.PARENT_FIRST, cfg.classLoaderMode());
     }
+
+
+    @Test
+    void aByteOrderMarkBeforeACommentOnLineOneIsIgnored()
+    {
+        // "UTF-8 with BOM": Files.readAllLines keeps U+FEFF at the start of the first line.
+        BootstrapConfig cfg = parse("\uFEFF# written by Notepad", "[bootstrap]",
+                "main-class = a.B");
+        assertEquals("a.B", cfg.mainClass().orElseThrow());
+    }
+
+
+    @Test
+    void aByteOrderMarkBeforeASectionHeaderIsIgnored()
+    {
+        BootstrapConfig cfg = parse("\uFEFF[bootstrap]", "main-class = a.B");
+        assertEquals("a.B", cfg.mainClass().orElseThrow());
+    }
+
+
+    @Test
+    void onlyALeadingByteOrderMarkOnLineOneIsRemoved()
+    {
+        assertEquals("[x]", ConfigParser.withoutByteOrderMark("\uFEFF[x]"));
+        assertEquals("", ConfigParser.withoutByteOrderMark(""));
+        assertEquals("a\uFEFF", ConfigParser.withoutByteOrderMark("a\uFEFF"));
+        // Past line 1 a U+FEFF is not a BOM and is left for the parser to reject.
+        assertThrows(BootstrapException.class, () -> parse("[bootstrap]", "\uFEFFmain-class"));
+    }
 }
