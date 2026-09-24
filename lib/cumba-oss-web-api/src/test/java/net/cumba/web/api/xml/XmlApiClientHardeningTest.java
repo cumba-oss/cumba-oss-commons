@@ -160,7 +160,7 @@ class XmlApiClientHardeningTest
     public static class FeatureRejectingFactory extends DocumentBuilderFactory
     {
 
-        private final DocumentBuilderFactory delegate = DocumentBuilderFactory.newDefaultInstance();
+        private final DocumentBuilderFactory delegate = newDefaultInstance();
 
         @Override
         public DocumentBuilder newDocumentBuilder() throws ParserConfigurationException

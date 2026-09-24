@@ -98,7 +98,7 @@ class CDTTest
     void testIsEmptyOrNullCollection()
     {
         assertTrue(CDT.isEmptyOrNull((Collection<String>) null));
-        assertTrue(CDT.isEmptyOrNull(new ArrayList<String>()));
+        assertTrue(CDT.isEmptyOrNull(new ArrayList<>()));
         assertFalse(CDT.isEmptyOrNull(List.of("a")));
     }
 
@@ -107,7 +107,7 @@ class CDTTest
     void testIsEmptyOrNullMap()
     {
         assertTrue(CDT.isEmptyOrNull((Map<String, String>) null));
-        assertTrue(CDT.isEmptyOrNull(new HashMap<String, String>()));
+        assertTrue(CDT.isEmptyOrNull(new HashMap<>()));
         assertFalse(CDT.isEmptyOrNull(Map.of("k", "v")));
     }
 
@@ -351,7 +351,7 @@ class CDTTest
     @Test
     void testContainsIgnoreCaseCollectionEmptyOrNull()
     {
-        assertFalse(CDT.containsIgnoreCase("x", new ArrayList<String>()));
+        assertFalse(CDT.containsIgnoreCase("x", new ArrayList<>()));
         assertFalse(CDT.containsIgnoreCase("x", (Collection<String>) null));
     }
 

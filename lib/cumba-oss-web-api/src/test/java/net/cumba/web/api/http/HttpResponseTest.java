@@ -26,10 +26,12 @@ class HttpResponseTest
     // --- Status code ---
 
     @Test
-    void statusCodeIsStored()
+    void statusCodeIsStored() throws IOException
     {
-        HttpResponse response = new HttpResponse(200, null, null);
-        assertEquals(200, response.statusCode());
+        try (HttpResponse response = new HttpResponse(200, null, null))
+        {
+            assertEquals(200, response.statusCode());
+        }
     }
 
     // --- isSuccess ---
@@ -90,118 +92,145 @@ class HttpResponseTest
     // --- Headers ---
 
     @Test
-    void headersAreStored()
+    void headersAreStored() throws IOException
     {
         Map<String, List<String>> headers = Map.of("Content-Type", List.of("application/json"));
-        HttpResponse response = new HttpResponse(200, headers, null);
-        assertEquals(List.of("application/json"), response.headers().get("Content-Type"));
+        try (HttpResponse response = new HttpResponse(200, headers, null))
+        {
+            assertEquals(List.of("application/json"), response.headers().get("Content-Type"));
+        }
     }
 
 
     @Test
-    void headersAreUnmodifiable()
+    void headersAreUnmodifiable() throws IOException
     {
         Map<String, List<String>> headers = new HashMap<>();
         headers.put("X-Key", List.of("val"));
-        HttpResponse response = new HttpResponse(200, headers, null);
-        assertThrows(UnsupportedOperationException.class,
-                () -> response.headers().put("New", List.of("v")));
+        try (HttpResponse response = new HttpResponse(200, headers, null))
+        {
+            assertThrows(UnsupportedOperationException.class,
+                    () -> response.headers().put("New", List.of("v")));
+        }
     }
 
 
     @Test
-    void nullHeadersBecomesEmptyMap()
+    void nullHeadersBecomesEmptyMap() throws IOException
     {
-        HttpResponse response = new HttpResponse(200, null, null);
-        assertNotNull(response.headers());
-        assertTrue(response.headers().isEmpty());
+        try (HttpResponse response = new HttpResponse(200, null, null))
+        {
+            assertNotNull(response.headers());
+            assertTrue(response.headers().isEmpty());
+        }
     }
 
 
     @Test
-    void headerReturnsFirstValue()
+    void headerReturnsFirstValue() throws IOException
     {
         Map<String, List<String>> headers = Map.of("X-Multi", List.of("first", "second"));
-        HttpResponse response = new HttpResponse(200, headers, null);
-        assertEquals("first", response.header("X-Multi"));
+        try (HttpResponse response = new HttpResponse(200, headers, null))
+        {
+            assertEquals("first", response.header("X-Multi"));
+        }
     }
 
 
     @Test
-    void headerReturnsNullForMissingHeader()
+    void headerReturnsNullForMissingHeader() throws IOException
     {
-        HttpResponse response = new HttpResponse(200, null, null);
-        assertNull(response.header("X-Missing"));
+        try (HttpResponse response = new HttpResponse(200, null, null))
+        {
+            assertNull(response.header("X-Missing"));
+        }
     }
 
 
     @Test
-    void headerReturnsNullForEmptyValueList()
+    void headerReturnsNullForEmptyValueList() throws IOException
     {
         Map<String, List<String>> headers = new HashMap<>();
         headers.put("X-Empty", List.of());
-        HttpResponse response = new HttpResponse(200, headers, null);
-        assertNull(response.header("X-Empty"));
+        try (HttpResponse response = new HttpResponse(200, headers, null))
+        {
+            assertNull(response.header("X-Empty"));
+        }
     }
 
 
     @Test
-    void headerLookupIsCaseInsensitive()
+    void headerLookupIsCaseInsensitive() throws IOException
     {
         Map<String, List<String>> headers = Map.of("Content-Encoding", List.of("gzip"));
-        HttpResponse response = new HttpResponse(200, headers, null);
-        assertEquals("gzip", response.header("content-encoding"));
-        assertEquals("gzip", response.header("CONTENT-ENCODING"));
-        assertEquals("gzip", response.header("Content-Encoding"));
+        try (HttpResponse response = new HttpResponse(200, headers, null))
+        {
+            assertEquals("gzip", response.header("content-encoding"));
+            assertEquals("gzip", response.header("CONTENT-ENCODING"));
+            assertEquals("gzip", response.header("Content-Encoding"));
+        }
     }
 
 
     @Test
-    void headersMapGetIsCaseInsensitive()
+    void headersMapGetIsCaseInsensitive() throws IOException
     {
         Map<String, List<String>> headers = Map.of("Content-Type", List.of("application/json"));
-        HttpResponse response = new HttpResponse(200, headers, null);
-        assertEquals(List.of("application/json"), response.headers().get("content-type"));
+        try (HttpResponse response = new HttpResponse(200, headers, null))
+        {
+            assertEquals(List.of("application/json"), response.headers().get("content-type"));
+        }
     }
 
     // --- Body ---
 
 
     @Test
-    void bodyIsStored()
+    void bodyIsStored() throws IOException
     {
         InputStream body = new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8));
-        HttpResponse response = new HttpResponse(200, null, body);
-        assertSame(body, response.body());
+        try (HttpResponse response = new HttpResponse(200, null, body))
+        {
+            assertSame(body, response.body());
+        }
     }
 
 
     @Test
-    void bodyCanBeNull()
+    void bodyCanBeNull() throws IOException
     {
-        HttpResponse response = new HttpResponse(204, null, null);
-        assertNull(response.body());
+        try (HttpResponse response = new HttpResponse(204, null, null))
+        {
+            assertNull(response.body());
+        }
     }
 
     // --- AutoCloseable ---
 
 
+    // The explicit close() is the behaviour under test; the try-with-resources close that
+    // follows it is a no-op.
+    @SuppressWarnings("try")
     @Test
     void closeClosesBody() throws IOException
     {
-        CloseTrackingStream body = new CloseTrackingStream();
-        HttpResponse response = new HttpResponse(200, null, body);
-        assertFalse(body.closed);
-        response.close();
-        assertTrue(body.closed);
+        try (CloseTrackingStream body = new CloseTrackingStream();
+                HttpResponse response = new HttpResponse(200, null, body))
+        {
+            assertFalse(body.closed);
+            response.close();
+            assertTrue(body.closed);
+        }
     }
 
 
     @Test
-    void closeWithNullBodyDoesNotThrow()
+    void closeWithNullBodyDoesNotThrow() throws IOException
     {
-        HttpResponse response = new HttpResponse(200, null, null);
-        assertDoesNotThrow(response::close);
+        try (HttpResponse response = new HttpResponse(200, null, null))
+        {
+            assertDoesNotThrow(response::close);
+        }
     }
 
 
@@ -220,10 +249,12 @@ class HttpResponseTest
 
 
     @Test
-    void toStringIncludesStatusCode()
+    void toStringIncludesStatusCode() throws IOException
     {
-        HttpResponse response = new HttpResponse(404, null, null);
-        assertEquals("HttpResponse[status=404]", response.toString());
+        try (HttpResponse response = new HttpResponse(404, null, null))
+        {
+            assertEquals("HttpResponse[status=404]", response.toString());
+        }
     }
 
     // --- Helper ---

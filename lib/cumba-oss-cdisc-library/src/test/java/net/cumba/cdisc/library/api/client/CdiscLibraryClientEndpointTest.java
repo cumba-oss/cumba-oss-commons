@@ -468,7 +468,7 @@ class CdiscLibraryClientEndpointTest
                         (ClientCall) c -> c.getRootQrsInstrument("PHQ-9")),
                 // Rules
                 Arguments.of("getRuleCatalogs", "/mdr/rules", TYPED_JSON,
-                        (ClientCall) c -> c.getRuleCatalogs()),
+                        (ClientCall) CdiscLibraryClient::getRuleCatalogs),
                 Arguments.of("getRuleCatalogsExpand", "/mdr/rules?expand=true", TYPED_JSON,
                         (ClientCall) c -> c.getRuleCatalogs(true)),
                 Arguments.of("getRule", "/mdr/rules/sdtmig/3-4/rule/uuid-abc", TYPED_JSON,
@@ -513,7 +513,7 @@ class CdiscLibraryClientEndpointTest
                                 "sdtm", "CLIN", "6.1")),
                 // Search
                 Arguments.of("getSearchScopes", "/mdr/search/scopes", TYPED_JSON,
-                        (ClientCall) c -> c.getSearchScopes()),
+                        (ClientCall) CdiscLibraryClient::getSearchScopes),
                 Arguments.of("suggest", "/mdr/suggest?q=test", TYPED_JSON,
                         (ClientCall) c -> c.suggest("test")),
                 Arguments.of("searchImplementedBy",
@@ -523,7 +523,7 @@ class CdiscLibraryClientEndpointTest
                 // assertion at all, so a client returning null from any of them passed. Routing
                 // them through this suite asserts the parsed payload as well as the path.
                 Arguments.of("getProducts", "/mdr/products", TYPED_JSON,
-                        (ClientCall) c -> c.getProducts()),
+                        (ClientCall) CdiscLibraryClient::getProducts),
                 Arguments.of("getProductsExpand", "/mdr/products?expand=true", TYPED_JSON,
                         (ClientCall) c -> c.getProducts(true)),
                 Arguments.of("getCtPackage", "/mdr/ct/packages/sdtmct-2023-12-15", TYPED_JSON,
@@ -535,7 +535,7 @@ class CdiscLibraryClientEndpointTest
                 Arguments.of("getDiffAgainstPrevious", "/mdr/diff/sdtmig/3-4/3-3", TYPED_JSON,
                         (ClientCall) c -> c.getDiff("sdtmig", "3-4", "3-3")),
                 Arguments.of("getLastUpdated", "/mdr/lastupdated", TYPED_JSON,
-                        (ClientCall) c -> c.getLastUpdated()));
+                        (ClientCall) CdiscLibraryClient::getLastUpdated));
     }
 
 

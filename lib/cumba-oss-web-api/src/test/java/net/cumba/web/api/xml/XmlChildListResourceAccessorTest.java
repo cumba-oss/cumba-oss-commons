@@ -279,6 +279,9 @@ class XmlChildListResourceAccessorTest
         }
 
 
+        // The (Object) cast is required: XmlChildListResource is final and does not implement
+        // Row, so javac rejects `r instanceof XmlChildListResource` as an impossible test.
+        @SuppressWarnings("PMD.UnnecessaryCast")
         @Test
         void askingForADomainInterfaceReturnsAProxy() throws Exception
         {

@@ -216,8 +216,8 @@ class CacheEntryIntegrityTest
         @Test
         void anEntryEqualsItself()
         {
-            assertEquals(base, base);
-            assertTrue(base.equals(base));
+            // assertEquals calls base.equals(base) itself; JUnit has no identity short-cut.
+            assertEquals(base, base, "equals() must be reflexive");
         }
 
 
@@ -260,18 +260,20 @@ class CacheEntryIntegrityTest
         {
             assertNotEquals(base, "body");
             assertNotEquals(base, null);
-            assertFalse(base.equals(Integer.valueOf(200)));
+            assertNotEquals(base, 200);
         }
 
 
         @Test
-        void ofCapturesTheResponseStatusAndHeaders()
+        void ofCapturesTheResponseStatusAndHeaders() throws IOException
         {
-            HttpResponse response = new HttpResponse(404, Map.of("X", List.of("y")), null);
-            CacheEntry entry = CacheEntry.of(response, "b".getBytes(UTF_8()));
-            assertEquals(404, entry.statusCode());
-            assertEquals(List.of("y"), entry.headers().get("X"));
-            assertEquals("b", new String(entry.content(), UTF_8()));
+            try (HttpResponse response = new HttpResponse(404, Map.of("X", List.of("y")), null))
+            {
+                CacheEntry entry = CacheEntry.of(response, "b".getBytes(UTF_8()));
+                assertEquals(404, entry.statusCode());
+                assertEquals(List.of("y"), entry.headers().get("X"));
+                assertEquals("b", new String(entry.content(), UTF_8()));
+            }
         }
 
 

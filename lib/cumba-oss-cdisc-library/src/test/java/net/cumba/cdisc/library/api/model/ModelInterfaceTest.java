@@ -717,7 +717,7 @@ class ModelInterfaceTest
     }
 
 
-    private static List<String> hrefs(List<net.cumba.web.api.Link> links)
+    private static List<String> hrefs(List<Link> links)
     {
         return links.stream().map(l -> l.href().orElse(null)).toList();
     }

@@ -3,6 +3,7 @@ package net.cumba.web.api.json;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -138,16 +139,8 @@ class JsonNodeResourceEdgeCaseTest
             node.set("_links", links);
 
             List<Link> result = JsonNodeResource.of(node).getLinks("items");
-            try
-            {
-                result.add(null);
-                // If we get here, list is not unmodifiable
-                assertFalse(true, "Expected UnsupportedOperationException");
-            }
-            catch (UnsupportedOperationException _)
-            {
-                // expected
-            }
+            assertThrows(UnsupportedOperationException.class, () -> result.add(null),
+                    "the link list must be unmodifiable");
         }
     }
 
@@ -173,7 +166,7 @@ class JsonNodeResourceEdgeCaseTest
         // fallback.
         @SuppressWarnings(
         {
-                "unlikely-arg-type", "CollectionIncompatibleType"
+                "unlikely-arg-type", "CollectionIncompatibleType", "PMD.CollectionTypeMismatch"
         })
         @Test
         void getFieldNamesContainsReturnsFalseForNonString()

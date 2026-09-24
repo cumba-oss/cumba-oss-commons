@@ -26,6 +26,9 @@ import org.junit.jupiter.api.Test;
  * not-found answer of their {@code String}-excerpt overloads.</li>
  * </ol>
  */
+// Test fixture strings, not addresses: "::abc" and "abc::def" exercise the "::" separator of the
+// getBefore*/getAfter* excerpt overloads, and merely look like IPv6 literals.
+@SuppressWarnings("PMD.AvoidUsingHardCodedIP")
 class CDTContainsAndSubstringTest
 {
 

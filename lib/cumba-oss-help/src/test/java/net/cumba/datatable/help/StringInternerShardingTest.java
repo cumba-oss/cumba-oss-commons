@@ -1,7 +1,6 @@
 package net.cumba.datatable.help;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -111,8 +110,10 @@ class StringInternerShardingTest
     @Test
     void weakElementDoesNotEqualAForeignType()
     {
-        assertFalse(element("ADSL", 1).equals("ADSL"));
-        assertFalse(element("ADSL", 1).equals(null));
+        // The element goes first: assertNotEquals calls first.equals(second), and it is the
+        // element's equals() under test, not String's.
+        assertNotEquals(element("ADSL", 1), "ADSL");
+        assertNotEquals(element("ADSL", 1), null);
     }
 
 

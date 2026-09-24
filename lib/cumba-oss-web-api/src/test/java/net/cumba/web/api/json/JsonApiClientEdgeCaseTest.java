@@ -191,8 +191,8 @@ class JsonApiClientEdgeCaseTest
         @Test
         void emptyPathProducesValidFileName()
         {
-            String name = new net.cumba.web.api.cache.FileApiCache(java.nio.file.Path.of("."),
-                    ".json").toCacheFileName("");
+            String name = new net.cumba.web.api.cache.FileApiCache(Path.of("."), ".json")
+                    .toCacheFileName("");
             assertTrue(name.endsWith(".json"));
         }
 
@@ -200,8 +200,8 @@ class JsonApiClientEdgeCaseTest
         @Test
         void pathWithOnlySlashProducesValidFileName()
         {
-            String name = new net.cumba.web.api.cache.FileApiCache(java.nio.file.Path.of("."),
-                    ".json").toCacheFileName("/");
+            String name = new net.cumba.web.api.cache.FileApiCache(Path.of("."), ".json")
+                    .toCacheFileName("/");
             assertTrue(name.endsWith(".json"));
         }
 
@@ -209,8 +209,8 @@ class JsonApiClientEdgeCaseTest
         @Test
         void pathWithSpecialCharsIsEncoded()
         {
-            String name = new net.cumba.web.api.cache.FileApiCache(java.nio.file.Path.of("."),
-                    ".json").toCacheFileName("/api/v1/search?q=hello&page=1");
+            String name = new net.cumba.web.api.cache.FileApiCache(Path.of("."), ".json")
+                    .toCacheFileName("/api/v1/search?q=hello&page=1");
             assertTrue(name.endsWith(".json"));
             // No raw special chars in the filename
             String withoutExtension = name.substring(0, name.length() - 5);

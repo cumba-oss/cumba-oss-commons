@@ -104,7 +104,7 @@ class LauncherTest
                 getClass().getProtectionDomain());
 
         List<String> recorded = Files.readAllLines(out);
-        assertTrue(recorded.contains("tccl=ChildFirstClassLoader"), () -> recorded.toString());
+        assertTrue(recorded.contains("tccl=ChildFirstClassLoader"), recorded::toString);
     }
 
 

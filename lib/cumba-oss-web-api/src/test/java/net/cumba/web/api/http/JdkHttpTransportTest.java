@@ -24,8 +24,10 @@ class JdkHttpTransportTest
     @Test
     void defaultConstructorCreatesInstance()
     {
-        JdkHttpTransport transport = new JdkHttpTransport();
-        assertNotNull(transport);
+        try (JdkHttpTransport transport = new JdkHttpTransport())
+        {
+            assertNotNull(transport);
+        }
     }
 
 
@@ -33,16 +35,20 @@ class JdkHttpTransportTest
     void customClientConstructor()
     {
         HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-        JdkHttpTransport transport = new JdkHttpTransport(client);
-        assertNotNull(transport);
+        try (JdkHttpTransport transport = new JdkHttpTransport(client))
+        {
+            assertNotNull(transport);
+        }
     }
 
 
     @Test
     void implementsHttpTransport()
     {
-        JdkHttpTransport transport = new JdkHttpTransport();
-        assertInstanceOf(HttpTransport.class, transport);
+        try (JdkHttpTransport transport = new JdkHttpTransport())
+        {
+            assertInstanceOf(HttpTransport.class, transport);
+        }
     }
 
 
@@ -58,8 +64,10 @@ class JdkHttpTransportTest
     {
         HttpClient client = HttpClient.newHttpClient();
         // Should not throw; the timeout is honoured at send() time, not at construction.
-        JdkHttpTransport transport = new JdkHttpTransport(client, Duration.ofSeconds(5));
-        assertNotNull(transport);
+        try (JdkHttpTransport transport = new JdkHttpTransport(client, Duration.ofSeconds(5)))
+        {
+            assertNotNull(transport);
+        }
     }
 
 
@@ -69,8 +77,10 @@ class JdkHttpTransportTest
         HttpClient client = HttpClient.newHttpClient();
         // Passing null is the documented way to opt out of the timeout; the constructor must not
         // reject it.
-        JdkHttpTransport transport = new JdkHttpTransport(client, null);
-        assertNotNull(transport);
+        try (JdkHttpTransport transport = new JdkHttpTransport(client, null))
+        {
+            assertNotNull(transport);
+        }
     }
 
     // --- gzip negotiation / decoding ---

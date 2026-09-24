@@ -19,7 +19,10 @@ import org.junit.jupiter.api.Test;
 class ConfigLocatorTest
 {
 
-    private static String noProps(String key)
+    /** A system-property lookup that knows no property at all. */
+    // The parameter is the UnaryOperator<String> lookup signature this method reference must fit.
+    @SuppressWarnings("PMD.UnusedFormalParameter")
+    private static String noProps(String aKey)
     {
         return null;
     }

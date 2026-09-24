@@ -1,7 +1,6 @@
 package net.cumba.web.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -44,7 +43,7 @@ class ValueSemanticsTest
         assertNotEquals(a, other);
         assertNotEquals(a.hashCode(), other.hashCode());
         assertNotEquals(a, null);
-        assertFalse(a.equals("{\"k\":1}"));
+        assertNotEquals(a, "{\"k\":1}");
         assertTrue(a.toString().startsWith("JsonNodeResource["), a.toString());
     }
 
@@ -62,7 +61,7 @@ class ValueSemanticsTest
         assertNotEquals(a, other);
         assertNotEquals(a.hashCode(), other.hashCode());
         assertNotEquals(a, null);
-        assertFalse(a.equals("[1,2]"));
+        assertNotEquals(a, "[1,2]");
         assertTrue(a.toString().startsWith("JsonArrayResource["), a.toString());
     }
 
@@ -80,7 +79,7 @@ class ValueSemanticsTest
         assertNotEquals(a, other);
         assertNotEquals(a.hashCode(), other.hashCode());
         assertNotEquals(a, null);
-        assertFalse(a.equals(List.of("x", "y")));
+        assertNotEquals(a, List.of("x", "y"));
         assertTrue(a.toString().startsWith("ListResource["), a.toString());
     }
 
@@ -98,7 +97,7 @@ class ValueSemanticsTest
         assertNotEquals(a, other);
         assertNotEquals(a.hashCode(), other.hashCode());
         assertNotEquals(a, null);
-        assertFalse(a.equals(Map.of("k", "1")));
+        assertNotEquals(a, Map.of("k", "1"));
     }
 
 
@@ -120,8 +119,12 @@ class ValueSemanticsTest
                 new Class<?>[]
                 {
                         Runnable.class
-                }, (p, m, args) -> "toString".equals(m.getName()) ? "alien"
-                        : "equals".equals(m.getName()) ? false : Integer.valueOf(0));
+                }, (p, m, args) -> switch (m.getName())
+                {
+                case "toString" -> "alien";
+                case "equals" -> false;
+                default -> 0;
+                });
         assertNotEquals(new MapResource(Map.of("k", "1")), alien);
         assertNotEquals(new ListResource(List.of("x")), alien);
     }

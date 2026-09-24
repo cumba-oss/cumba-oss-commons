@@ -326,8 +326,8 @@ class ClasspathBuilderTest
         URL[] urls = builder(ErrorMode.WARN).build(List.of(""));
 
         assertEquals(0, urls.length);
-        assertEquals(1, warnings.size(), () -> warnings.toString());
-        assertTrue(warnings.get(0).contains("empty path"), () -> warnings.toString());
+        assertEquals(1, warnings.size(), warnings::toString);
+        assertTrue(warnings.get(0).contains("empty path"), warnings::toString);
     }
 
 
@@ -337,7 +337,7 @@ class ClasspathBuilderTest
         URL[] urls = builder(ErrorMode.WARN).build(List.of("   "));
 
         assertEquals(0, urls.length);
-        assertEquals(1, warnings.size(), () -> warnings.toString());
+        assertEquals(1, warnings.size(), warnings::toString);
     }
 
 

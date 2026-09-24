@@ -122,22 +122,27 @@ class JdkHttpTransportHardeningTest
         HttpClient client = mock(HttpClient.class);
         when(client.send(any(), any())).thenThrow(new InterruptedException("stopped"));
 
-        JdkHttpTransport transport = new JdkHttpTransport(client);
         HttpRequest request = HttpRequest.get("http://localhost:1/x").build();
+        try (JdkHttpTransport transport = new JdkHttpTransport(client))
+        {
+            IOException failure = assertThrows(IOException.class, () -> transport.send(request));
 
-        IOException failure = assertThrows(IOException.class, () -> transport.send(request));
-
-        // Read-and-clear, so the flag cannot leak into another test in this JVM.
-        assertTrue(Thread.interrupted(),
-                "swallowing the interrupt would leave the caller unable to stop");
-        assertInstanceOf(InterruptedException.class, failure.getCause());
-        assertTrue(failure.getMessage().contains("HTTP request interrupted"), failure.getMessage());
+            // Read-and-clear, so the flag cannot leak into another test in this JVM.
+            assertTrue(Thread.interrupted(),
+                    "swallowing the interrupt would leave the caller unable to stop");
+            assertInstanceOf(InterruptedException.class, failure.getCause());
+            assertTrue(failure.getMessage().contains("HTTP request interrupted"),
+                    failure.getMessage());
+        }
     }
 
 
     @Test
     void closeTerminatesTheUnderlyingClient()
     {
+        // Owned by the transport from here on: JdkHttpTransport.close() closes it, and that
+        // hand-off is exactly what this test asserts.
+        @SuppressWarnings("PMD.CloseResource")
         HttpClient client = HttpClient.newHttpClient();
         assertFalse(client.isTerminated(), "precondition: the client is live");
         try (JdkHttpTransport transport = new JdkHttpTransport(client))

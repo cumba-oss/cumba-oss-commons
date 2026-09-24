@@ -23,8 +23,6 @@ class BootstrapTest
 
     private ClassLoader originalTccl;
 
-    private Path testClasses;
-
     private Path out;
 
     private Path conf;
@@ -33,7 +31,7 @@ class BootstrapTest
     void setUp() throws URISyntaxException, IOException
     {
         originalTccl = Thread.currentThread().getContextClassLoader();
-        testClasses = Path
+        Path testClasses = Path
                 .of(TestMain.class.getProtectionDomain().getCodeSource().getLocation().toURI());
         out = tmp.resolve("out.txt");
         conf = tmp.resolve("cumba-oss-bootstrap.conf");
@@ -67,8 +65,8 @@ class BootstrapTest
         }, getClass().getProtectionDomain(), sys);
 
         List<String> recorded = Files.readAllLines(out);
-        assertTrue(recorded.contains("args=a|b"), () -> recorded.toString());
-        assertTrue(recorded.contains("foo=baz"), () -> recorded.toString());
+        assertTrue(recorded.contains("args=a|b"), recorded::toString);
+        assertTrue(recorded.contains("foo=baz"), recorded::toString);
     }
 
 
@@ -82,7 +80,7 @@ class BootstrapTest
         });
 
         List<String> recorded = Files.readAllLines(out);
-        assertTrue(recorded.contains("args=z"), () -> recorded.toString());
+        assertTrue(recorded.contains("args=z"), recorded::toString);
     }
 
 

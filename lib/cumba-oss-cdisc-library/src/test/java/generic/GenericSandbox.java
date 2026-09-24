@@ -74,9 +74,9 @@ public class GenericSandbox
     {
         Products products = aClient.getProducts();
 
-        Set<String> ruleTypes = new HashSet<String>();
-        Set<String> sensitivity = new HashSet<String>();
-        Set<String> executability = new HashSet<String>();
+        Set<String> ruleTypes = new HashSet<>();
+        Set<String> sensitivity = new HashSet<>();
+        Set<String> executability = new HashSet<>();
 
         for (Link pl : products.allLinks())
         {
@@ -360,7 +360,7 @@ public class GenericSandbox
             }
         }
 
-        List<CtCodelist> codelists = new ArrayList<CtCodelist>(cdlMap.values());
+        List<CtCodelist> codelists = new ArrayList<>(cdlMap.values());
 
         Collections.sort(codelists, (c1, c2) -> c1.submissionValue().orElse("")
                 .compareTo(c2.submissionValue().orElse("")));

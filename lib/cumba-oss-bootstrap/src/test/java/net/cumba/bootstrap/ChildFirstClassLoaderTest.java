@@ -113,7 +113,7 @@ class ChildFirstClassLoaderTest
     {
         List<URL> found = list(loader.getResources("data.txt"));
         assertEquals(1, found.size());
-        assertTrue(found.get(0).toString().endsWith("data.txt"), () -> found.toString());
+        assertTrue(found.get(0).toString().endsWith("data.txt"), found::toString);
     }
 
 
@@ -123,7 +123,7 @@ class ChildFirstClassLoaderTest
         // Nothing local matches, so every element must have come from the parent. Dropping the
         // parent pass would return an empty enumeration — a shadowed SPI lookup finding nothing.
         List<URL> found = list(loader.getResources("java/lang/Object.class"));
-        assertEquals(1, found.size(), () -> found.toString());
+        assertEquals(1, found.size(), found::toString);
     }
 
 
@@ -135,10 +135,10 @@ class ChildFirstClassLoaderTest
 
         List<URL> found = list(loader.getResources(resource));
 
-        assertEquals(2, found.size(), () -> found.toString());
+        assertEquals(2, found.size(), found::toString);
         assertEquals(tmp.resolve(resource), Path.of(found.get(0).toURI()),
                 () -> "the child's copy must be listed first: " + found);
-        assertTrue(found.get(1).toString().startsWith("jrt:"), () -> found.toString());
+        assertTrue(found.get(1).toString().startsWith("jrt:"), found::toString);
     }
 
 

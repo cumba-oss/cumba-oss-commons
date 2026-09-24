@@ -181,7 +181,7 @@ class ClientAndLinkBoundaryTest
 
 
         @Test
-        void aBodyThatCannotBeReadSaysSoRatherThanLookingEmpty()
+        void aBodyThatCannotBeReadSaysSoRatherThanLookingEmpty() throws IOException
         {
             InputStream broken = new InputStream()
             {
@@ -210,8 +210,10 @@ class ClientAndLinkBoundaryTest
                     throw new IOException("disconnected");
                 }
             };
-            assertEquals("(unable to read response body)",
-                    TestClient.readBody(new HttpResponse(500, Map.of(), broken)));
+            try (HttpResponse response = new HttpResponse(500, Map.of(), broken))
+            {
+                assertEquals("(unable to read response body)", TestClient.readBody(response));
+            }
         }
     }
 
@@ -450,13 +452,15 @@ class ClientAndLinkBoundaryTest
 
 
         @Test
-        void aCacheEntryRoundTripsThroughTheResponseForm()
+        void aCacheEntryRoundTripsThroughTheResponseForm() throws IOException
         {
             CacheEntry entry = new CacheEntry(201, Map.of("A", List.of("1")),
                     "b".getBytes(StandardCharsets.UTF_8));
-            HttpResponse r = entry.toHttpResponse();
-            assertEquals(201, r.statusCode());
-            assertEquals("1", r.header("a"), "header lookup is case-insensitive");
+            try (HttpResponse r = entry.toHttpResponse())
+            {
+                assertEquals(201, r.statusCode());
+                assertEquals("1", r.header("a"), "header lookup is case-insensitive");
+            }
         }
     }
 }

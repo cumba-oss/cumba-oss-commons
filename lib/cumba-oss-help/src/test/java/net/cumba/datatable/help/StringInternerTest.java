@@ -262,12 +262,9 @@ class StringInternerTest
     void collectedEntriesAreExpunged() throws InterruptedException
     {
         StringInterner interner = new StringInterner(1);
-        String unique = new String(new char[]
-        {
-                'g', 'c', '-', 't', 'o', 'k', 'e', 'n'
-        });
-        WeakReference<String> ref = new WeakReference<>(interner.intern(unique));
-        unique = null;
+        // The token is built inside fresh(), so no local of this frame keeps it strongly reachable
+        // once intern() has returned; only the interner's weak entry and `ref` still see it.
+        WeakReference<String> ref = new WeakReference<>(interner.intern(fresh("gc-token")));
 
         boolean cleared = false;
         for (int i = 0; i < 100 && !cleared; i++)

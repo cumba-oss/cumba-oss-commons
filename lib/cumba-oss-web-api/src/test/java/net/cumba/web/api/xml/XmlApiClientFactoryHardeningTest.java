@@ -147,15 +147,17 @@ class XmlApiClientFactoryHardeningTest
     public static final class RecordingFactory extends DocumentBuilderFactory
     {
 
-        static Boolean namespaceAware;
+        // Static because JAXP instantiates this class reflectively and the test never sees the
+        // instance; private because only the enclosing test reads it.
+        private static Boolean namespaceAware;
 
-        static Boolean xIncludeAware;
+        private static Boolean xIncludeAware;
 
-        static Boolean expandEntityReferences;
+        private static Boolean expandEntityReferences;
 
-        static Map<String, Boolean> features = new LinkedHashMap<>();
+        private static Map<String, Boolean> features = new LinkedHashMap<>();
 
-        private final DocumentBuilderFactory delegate = DocumentBuilderFactory.newDefaultInstance();
+        private final DocumentBuilderFactory delegate = newDefaultInstance();
 
         static void reset()
         {
@@ -231,9 +233,10 @@ class XmlApiClientFactoryHardeningTest
     public static final class RejectingFactory extends DocumentBuilderFactory
     {
 
-        static List<String> attempted = new ArrayList<>();
+        // Static and private for the same reason as RecordingFactory's fields.
+        private static List<String> attempted = new ArrayList<>();
 
-        private final DocumentBuilderFactory delegate = DocumentBuilderFactory.newDefaultInstance();
+        private final DocumentBuilderFactory delegate = newDefaultInstance();
 
         static void reset()
         {

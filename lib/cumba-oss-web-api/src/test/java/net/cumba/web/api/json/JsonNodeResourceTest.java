@@ -461,11 +461,13 @@ class JsonNodeResourceTest
     }
 
 
-    @Test
+    // Deliberately probes Set.contains(Object) with a non-String: the lookup must answer false,
+    // not throw.
     @SuppressWarnings(
     {
-            "unlikely-arg-type", "CollectionIncompatibleType"
+            "unlikely-arg-type", "CollectionIncompatibleType", "PMD.CollectionTypeMismatch"
     })
+    @Test
     void getFieldNamesContainsWorks()
     {
         ObjectNode node = mapper.createObjectNode();

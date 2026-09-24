@@ -63,6 +63,9 @@ class CacheValidatorTest
     }
 
 
+    // The parameters are the CacheValidator signature, which is what the method-reference test
+    // proves this method satisfies; an always-valid validator has no use for them.
+    @SuppressWarnings("PMD.UnusedFormalParameter")
     private static boolean alwaysValid(HttpRequest aRequest, CacheEntry aEntry, long aTimestamp)
     {
         return true;

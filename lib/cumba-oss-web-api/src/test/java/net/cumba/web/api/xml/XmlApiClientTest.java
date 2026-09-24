@@ -112,7 +112,7 @@ class XmlApiClientTest
             // upper-case letter is escaped so that the name cannot collide with its lower-case
             // twin on a case-insensitive file system. '.' and '-' stay readable.
             assertEquals("_study_%53.001.xml",
-                    new net.cumba.web.api.cache.FileApiCache(java.nio.file.Path.of("."), ".xml")
+                    new net.cumba.web.api.cache.FileApiCache(Path.of("."), ".xml")
                             .toCacheFileName("/study/S.001"));
         }
 
@@ -120,9 +120,8 @@ class XmlApiClientTest
         @Test
         void encodesLeadingSlash()
         {
-            assertEquals("_root.xml",
-                    new net.cumba.web.api.cache.FileApiCache(java.nio.file.Path.of("."), ".xml")
-                            .toCacheFileName("/root"));
+            assertEquals("_root.xml", new net.cumba.web.api.cache.FileApiCache(Path.of("."), ".xml")
+                    .toCacheFileName("/root"));
         }
     }
 
