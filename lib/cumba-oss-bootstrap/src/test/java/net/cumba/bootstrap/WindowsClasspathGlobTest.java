@@ -82,6 +82,21 @@ class WindowsClasspathGlobTest
 
 
     @Test
+    void aDanglingSymlinkMatchedByAGlobIsStillResolved() throws IOException
+    {
+        // The privilege-free twin of ClasspathBuilderTest's real-disk case, which aborts on a
+        // Windows account that may not create links. jimfs needs no privilege, so this branch of
+        // canonicalize -- toRealPath throws, fall back to the absolute path -- runs on every host.
+        Files.createSymbolicLink(appHome.resolve("lib\\dangling.jar"),
+                appHome.resolve("lib\\gone.jar"));
+
+        URL[] urls = builder(ErrorMode.ERROR).build(List.of("lib\\*.jar"));
+
+        assertEquals(List.of("a.jar", "b.jar", "dangling.jar"), fileNames(urls));
+    }
+
+
+    @Test
     void theReadmesCanonicalEntryExpandsInsteadOfThrowing()
     {
         // '${app.home}/lib/*.jar' with app.home = 'C:\app'. Before the fix Path.of(entry) threw

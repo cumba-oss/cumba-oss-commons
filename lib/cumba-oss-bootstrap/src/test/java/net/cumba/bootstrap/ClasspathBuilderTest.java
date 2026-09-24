@@ -5,9 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.abort;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.FileSystem;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -227,6 +230,34 @@ class ClasspathBuilderTest
         URL[] urls = builder(ErrorMode.WARN).build(List.of("lib/*.jar"));
 
         assertEquals(List.of("a.jar", "b.jar", "dangling.jar"), fileNames(urls));
+    }
+
+
+    @Test
+    void danglingSymlinkIsResolvedOnAnInMemoryUnixFilesystem() throws IOException
+    {
+        // Same claim as above, but on jimfs, which creates links without any OS privilege. The
+        // real-disk case aborts where links cannot be made; this one exercises the fallback always.
+        try (FileSystem unix = Jimfs.newFileSystem(Configuration.unix()))
+        {
+            Path home = unix.getPath("/app");
+            Files.createDirectories(home.resolve("lib"));
+            Files.createFile(home.resolve("lib/a.jar"));
+            Files.createSymbolicLink(home.resolve("lib/dangling.jar"),
+                    home.resolve("lib/gone.jar"));
+
+            URL[] urls = new ClasspathBuilder(home, ErrorMode.ERROR, warnings::add)
+                    .build(List.of("lib/*.jar"));
+
+            List<String> names = new ArrayList<>();
+            for (URL url : urls)
+            {
+                String path = url.getPath();
+                names.add(path.substring(path.lastIndexOf('/') + 1));
+            }
+            assertEquals(List.of("a.jar", "dangling.jar"), names);
+            assertEquals(List.of(), warnings);
+        }
     }
 
 
