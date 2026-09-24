@@ -54,7 +54,8 @@ public final class Bootstrap
      *             any exception thrown by the target program (propagated as-is)
      */
     // A lambda, not GraphicsEnvironment::isHeadless: a method reference is linked when the argument
-    // is evaluated, before the opt-in check, and would load java.desktop on every failed start.
+    // is evaluated, before the opt-in check, and would load a java.desktop class on every failed
+    // start.
     @SuppressWarnings("PMD.LambdaCanBeMethodReference")
     public static void main(String[] args) throws Exception
     {
@@ -115,8 +116,8 @@ public final class Bootstrap
     static String errorDialogText(String message)
     {
         return "The application could not be started:\n\n" + message
-                + "\n\nThe launcher's configuration is the .conf file named above (normally the one"
-                + " beside the launcher jar).";
+                + "\n\nThe launcher's configuration is a .conf file, normally the one beside the"
+                + " launcher jar (or the one given by -Dbootstrap.config).";
     }
 
 
@@ -176,7 +177,9 @@ public final class Bootstrap
 
     private static void showOnTop(String message)
     {
-        // An ownerless dialog has no taskbar entry, and Windows' foreground lock can open it behind
+        // createDialog(String) gives a truly ownerless dialog (showMessageDialog(null, ...) used
+        // Swing's hidden shared frame); keep it on top as well, because Windows' foreground lock
+        // can open it behind
         // other windows while main() waits for it; keep it on top.
         JDialog dialog = errorPane(message).createDialog("Cannot start the application");
         dialog.setAlwaysOnTop(true);
