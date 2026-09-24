@@ -178,9 +178,8 @@ public final class Bootstrap
     private static void showOnTop(String message)
     {
         // createDialog(String) gives a truly ownerless dialog (showMessageDialog(null, ...) used
-        // Swing's hidden shared frame); keep it on top as well, because Windows' foreground lock
-        // can open it behind
-        // other windows while main() waits for it; keep it on top.
+        // Swing's hidden shared frame). Keep it on top as well: Windows' foreground lock can open
+        // it behind other windows while main() waits for it.
         JDialog dialog = errorPane(message).createDialog("Cannot start the application");
         dialog.setAlwaysOnTop(true);
         dialog.setVisible(true);
