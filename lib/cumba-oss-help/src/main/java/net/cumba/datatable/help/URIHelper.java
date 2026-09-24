@@ -61,9 +61,12 @@ public class URIHelper
      * keeps the archive open in a cache for the life of the JVM, after the stream is closed.
      * Measured on JDK 25: the archive keeps an open handle, so on Windows it stays locked until the
      * application exits, and on every OS a re-read after the archive is replaced returns the OLD
-     * content. With caching off, closing the stream closes the archive. For {@code file:} and every
-     * other scheme this is the same stream {@code openStream()} returns; a {@code #fragment} is
-     * carried into the URL's ref and ignored by the connection, exactly as before.
+     * content. With caching off, closing the stream closes the archive. For {@code file:} this is
+     * the same stream {@code openStream()} returns; for {@code http(s):} the body is the same, but
+     * an uncached request also carries {@code Cache-Control: no-cache} / {@code Pragma: no-cache}
+     * and bypasses any installed {@code ResponseCache} (none is installed in this stack). A
+     * {@code #fragment} is carried into the URL's ref and ignored by the connection, exactly as
+     * before.
      * </p>
      * <p>
      * ⚠ Cost: uncached, each open of a {@code jar:file:} URL re-reads the archive's central
