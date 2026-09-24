@@ -276,15 +276,11 @@ public final class XmlChildListResource implements ApiArrayResource
     public boolean isObject(int aIndex)
     {
         Element elem = safeGet(aIndex);
-        if (elem == null)
-        {
-            return false;
-        }
         // An element is considered an "object" if it has child elements or attributes
         // beyond xmlns declarations. Delegates to the same predicate as
         // XmlElementResource.isObject so the two implementations cannot disagree
         // (F-webapi-07 — the old inline check counted text nodes as children).
-        return XmlElementResource.isComplexElement(elem);
+        return elem != null && XmlElementResource.isComplexElement(elem);
     }
 
 

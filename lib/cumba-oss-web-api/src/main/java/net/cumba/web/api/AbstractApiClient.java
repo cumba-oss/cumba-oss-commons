@@ -168,6 +168,8 @@ public abstract class AbstractApiClient
             // first call, dereference on the second - is what SpotBugs 4.10's
             // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE flags: nothing guarantees the
             // second call returns the same non-null value.
+            // Owned by response, whose try-with-resources closes it.
+            @SuppressWarnings("PMD.CloseResource")
             InputStream rawBody = response.body();
             body = rawBody != null ? rawBody.readAllBytes() : null;
         }
@@ -260,6 +262,8 @@ public abstract class AbstractApiClient
         // Read body() ONCE into a local: null-checking one call and dereferencing
         // a second is what SpotBugs 4.10 flags as
         // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE.
+        // Borrowed: the caller owns aResponse and closes it, which closes its body.
+        @SuppressWarnings("PMD.CloseResource")
         InputStream body = aResponse.body();
         if (body == null)
         {

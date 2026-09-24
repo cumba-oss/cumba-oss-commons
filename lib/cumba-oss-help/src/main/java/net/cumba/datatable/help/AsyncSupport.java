@@ -58,6 +58,10 @@ public class AsyncSupport
      *             if the future completed with an {@link IOException} or any other non-runtime
      *             cause.
      */
+    // Unwrapping IS the contract: each rethrown exception is the original cause, carrying its own
+    // full trace. Attaching the wrapper via addSuppressed would mutate an exception shared by every
+    // joiner of the future (growing on each join) and self-suppress when ce has no cause.
+    @SuppressWarnings("PMD.PreserveStackTrace")
     public static void joinOrThrowIO(CompletableFuture<?> aFuture) throws IOException
     {
         try

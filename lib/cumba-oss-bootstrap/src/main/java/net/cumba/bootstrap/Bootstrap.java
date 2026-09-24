@@ -83,7 +83,8 @@ public final class Bootstrap
         catch (NoSuchFileException e)
         {
             throw new BootstrapException("bootstrap config not found: " + configPath
-                    + " (override with -D" + ConfigLocator.CONFIG_OVERRIDE_PROPERTY + "=<path>)");
+                    + " (override with -D" + ConfigLocator.CONFIG_OVERRIDE_PROPERTY + "=<path>)",
+                    e);
         }
         catch (IOException e)
         {

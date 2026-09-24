@@ -96,6 +96,8 @@ public class JsonApiClient extends AbstractApiClient
             // Read body() ONCE into a local: null-checking one call and dereferencing
             // a second is what SpotBugs 4.10 flags as
             // NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE.
+            // Owned by response, whose try-with-resources closes it.
+            @SuppressWarnings("PMD.CloseResource")
             InputStream body = response.body();
             if (body == null)
             {

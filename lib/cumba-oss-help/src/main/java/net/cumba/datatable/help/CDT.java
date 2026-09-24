@@ -254,11 +254,7 @@ public class CDT
         {
             return aString2 == null;
         }
-        if (aString2 == null)
-        {
-            return false;
-        }
-        return aString1.equalsIgnoreCase(aString2);
+        return aString2 != null && aString1.equalsIgnoreCase(aString2);
     }
 
 
@@ -306,9 +302,9 @@ public class CDT
         {
             return false;
         }
-        for (int i = 0; i < aElements.length; i++)
+        for (Object element : aElements)
         {
-            if (Objects.equals(aElement, aElements[i]))
+            if (Objects.equals(aElement, element))
             {
                 return true;
             }
@@ -332,9 +328,9 @@ public class CDT
         {
             return false;
         }
-        for (int i = 0; i < aElements.length; i++)
+        for (int element : aElements)
         {
-            if (aElement == aElements[i])
+            if (aElement == element)
             {
                 return true;
             }
@@ -358,9 +354,9 @@ public class CDT
         {
             return false;
         }
-        for (int i = 0; i < aElements.length; i++)
+        for (long element : aElements)
         {
-            if (aElement == aElements[i])
+            if (aElement == element)
             {
                 return true;
             }
@@ -384,9 +380,9 @@ public class CDT
         {
             return false;
         }
-        for (int i = 0; i < aElements.length; i++)
+        for (double element : aElements)
         {
-            if (Double.compare(aElement, aElements[i]) == 0)
+            if (Double.compare(aElement, element) == 0)
             {
                 return true;
             }
