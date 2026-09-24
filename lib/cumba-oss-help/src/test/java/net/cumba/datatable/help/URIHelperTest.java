@@ -7,8 +7,16 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class URIHelperTest
 {
@@ -231,5 +239,61 @@ class URIHelperTest
         // slash-free hierarchical path.
         URI uri = URI.create("mailto:x@y.z");
         assertEquals("x@y.z", URIHelper.getFileName(uri));
+    }
+
+
+    private static void zip(Path aZip, String aContent) throws IOException
+    {
+        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(aZip)))
+        {
+            zos.putNextEntry(new ZipEntry("ds.json"));
+            zos.write(aContent.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+    }
+
+
+    private static String read(URI aUri) throws IOException
+    {
+        try (InputStream in = URIHelper.openStream(aUri))
+        {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+
+    /**
+     * The reason {@code openStream} exists: a zip replaced during the session is read afresh. With
+     * {@code URL.openStream()} the second read returned the OLD content (measured on Linux), and on
+     * Windows the {@code delete} below failed on the cached archive handle.
+     */
+    @Test
+    void openStreamReadsAReplacedZipAfresh(@TempDir Path tmp) throws IOException
+    {
+        Path zip = tmp.resolve("bundle.zip");
+        zip(zip, "{}");
+        URI entry = URI.create("jar:" + zip.toUri() + "!/ds.json");
+        assertEquals("{}", read(entry));
+
+        Files.delete(zip);
+        zip(zip, "{\"v\":2}");
+
+        assertEquals("{\"v\":2}", read(entry), "the replaced zip must be read, not the cached one");
+    }
+
+
+    @Test
+    void openStreamReadsAPlainFileAndIgnoresAFragmentOnAZipEntry(@TempDir Path tmp)
+        throws IOException
+    {
+        Path file = tmp.resolve("plain.json");
+        Files.writeString(file, "plain", StandardCharsets.UTF_8);
+        assertEquals("plain", read(file.toUri()));
+
+        Path zip = tmp.resolve("frag.zip");
+        zip(zip, "zipped");
+        // A #TABLE fragment is how a member of a multi-table file is addressed; the stream is the
+        // entry's content, exactly as with URL.openStream().
+        assertEquals("zipped", read(URI.create("jar:" + zip.toUri() + "!/ds.json#TABLE1")));
     }
 }
