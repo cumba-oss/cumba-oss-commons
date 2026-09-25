@@ -53,19 +53,13 @@
         <jacoco.line.coverage>0.85</jacoco.line.coverage>
 
         <!--
-            Mutation floors, measured COLD on THIS subset (2026-09-16). This module is the
-            process entry point of two shipped distributions, and until now it was gated on
-            the root pom's inherited 55 / 80 / 0 - a test-strength floor of 0 cannot fail at
-            any score, so the twelve glob tests and three blank-entry tests that guard the
-            ported classpath fixes were holding nothing in place.
-
-            Measured here: 216 mutants, 206 KILLED, 2 TIMED_OUT, 1 RUN_ERROR, 5 SURVIVED,
-            2 NO_COVERAGE -> mutation coverage 97 % (95.4 % counting only KILLED), test
-            strength 98 % (96.3 % honest), pitest line coverage 93 %, JaCoCo line coverage
-            95.3 %.
+            Mutation floors, measured on THIS subset. This module is the process entry point of
+            two shipped distributions, so it carries its own floors: the root pom's inherited
+            test-strength floor of 0 cannot fail at any score, so the glob and blank-entry tests
+            that guard the ported classpath fixes would hold nothing in place.
 
             Each floor is the measured figure minus about two points. ⚠ pitest scores
-            TIMED_OUT and RUN_ERROR as kills, so the honest KILLED-only rate above is the one
+            TIMED_OUT and RUN_ERROR as kills, so the honest KILLED-only rate is the one
             to reason about; the floors are set against what pitest itself compares, which is
             the headline, rounded to an integer.
 

@@ -51,14 +51,13 @@
         <!--
             Floors for this module. ⚠ REDUCED FROM THE INTERNAL VALUES, and the reason is
             structural rather than a shortfall in testing: cumba-oss-help is a DOCUMENTED
-            4-class subset of the internal module (reduction register R5 — 21 of 30 internal
-            files are absent by policy, including the whole stream/ tree). The internal floors
-            (mutation 96 / coverage 95 / strength 96 / jacoco 0.95) were measured over that
-            larger file set and do not transfer.
+            subset of the internal module (reduction register R5 — most internal files are
+            absent by policy, including the whole stream/ tree). The internal floors were
+            set over that larger file set and do not transfer.
 
-            MEASURED HERE, 2026-09-15, with the full internal test set for the surviving
-            classes ported: JaCoCo line 0.93 over 6 classes. The floor is that figure minus
-            two points, the same rule the sibling modules use.
+            The floor is this module's own measured figure, with the full internal test set for
+            the surviving classes ported, minus two points — the same rule the sibling modules
+            use.
 
             ⛔ A FLOOR IS NEVER LOWERED. If a change drops this module below it, the change is
             wrong or its tests are missing — not the floor.
@@ -66,18 +65,14 @@
         <jacoco.line.coverage>0.91</jacoco.line.coverage>
 
         <!--
-            Mutation floors, measured COLD on THIS subset (2026-09-16), not carried over from
-            the internal twin: internal cumba-help gates at 96 / 95 / 96 over a larger file
-            set, and this subset measures below that - D3's reduction case, the same reason
-            the JaCoCo floor above is 0.91 rather than internal's 0.95.
-
-            Measured here: 161 mutants, 141 KILLED, 16 SURVIVED, 4 NO_COVERAGE
-            -> mutation coverage 88 % (87.6 % counting only KILLED), test strength 90 %
-            (89.8 % honest), pitest line coverage 94 %, JaCoCo line coverage 93.8 %.
+            Mutation floors, measured on THIS subset, not carried over from the internal twin:
+            internal cumba-help gates over a larger file set, and this subset measures below
+            that - D3's reduction case, the same reason the JaCoCo floor above is lower than
+            internal's.
 
             Each floor is the measured figure minus about two points. They replace the root
-            pom's inherited 55 / 80 / 0 - and a test-strength floor of 0 cannot fail at any
-            score, which is why this module was gated on nothing until now.
+            pom's inherited defaults - and a test-strength floor of 0 cannot fail at any
+            score, which is why this module had no strength gate before.
 
             ⛔ A floor is never lowered. Never pass -Dpitest.mutation.threshold or
             -Djacoco.line.coverage on the command line; a CLI -D clobbers every module at once.
