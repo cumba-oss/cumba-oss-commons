@@ -186,7 +186,10 @@ the absolute path of the overlay applied (unset if none);
 override alone when it is in effect), joined with the platform path separator,
 so the application can log where it looked. It is empty when every candidate
 was skipped, and meant for a log line: a path containing the separator makes
-the list ambiguous.
+the list ambiguous. Both names (and `bootstrap.user.config`) are public
+constants on `Launcher` and part of its contract: an application loaded by the
+launcher cannot see the launcher's classes at run time, so it spells them
+itself and should pin them equal in a build that has both on its class path.
 
 **Errors** in the overlay name the overlay's path; parse errors also the line
 (resolution errors do not — entries carry no line numbers).

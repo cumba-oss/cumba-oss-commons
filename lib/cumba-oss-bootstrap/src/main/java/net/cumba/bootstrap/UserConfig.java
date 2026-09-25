@@ -32,17 +32,17 @@ final class UserConfig
 {
 
     /** System property replacing the candidate list with one explicit file (which must exist). */
-    static final String OVERRIDE_PROPERTY = "bootstrap.user.config";
+    static final String OVERRIDE_PROPERTY = Launcher.USER_CONFIG_OVERRIDE_PROPERTY;
 
     /** Published: the absolute path of the overlay applied; unset when none was. */
-    static final String APPLIED_PROPERTY = "bootstrap.user.config.applied";
+    static final String APPLIED_PROPERTY = Launcher.USER_CONFIG_APPLIED_PROPERTY;
 
     /**
      * Published: the resolved candidate paths, {@link File#pathSeparator}-joined — meant for a log
      * line (a path that itself contains the separator makes the list ambiguous); empty when every
      * candidate was skipped.
      */
-    static final String CANDIDATES_PROPERTY = "bootstrap.user.config.candidates";
+    static final String CANDIDATES_PROPERTY = Launcher.USER_CONFIG_CANDIDATES_PROPERTY;
 
     /**
      * Keys a user overlay may never set: the launcher's own inputs and outputs. The bundled config

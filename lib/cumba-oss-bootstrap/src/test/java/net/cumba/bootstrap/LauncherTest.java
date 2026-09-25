@@ -674,4 +674,16 @@ class LauncherTest
                 () -> Launcher.launch(cfg, new String[] {}, pd));
         assertTrue(ex.getMessage().contains("no target main class"), ex::getMessage);
     }
+
+
+    @Test
+    void thePublishedPropertyNamesAreAContract()
+    {
+        // Applications spell these names to log where the user overlay came from (the data
+        // browser's ViewerMain, pinned equal by a test in cumba-databrowser-launch). Renaming one
+        // is a breaking change for every such application, not a refactoring.
+        assertEquals("bootstrap.user.config", Launcher.USER_CONFIG_OVERRIDE_PROPERTY);
+        assertEquals("bootstrap.user.config.applied", Launcher.USER_CONFIG_APPLIED_PROPERTY);
+        assertEquals("bootstrap.user.config.candidates", Launcher.USER_CONFIG_CANDIDATES_PROPERTY);
+    }
 }

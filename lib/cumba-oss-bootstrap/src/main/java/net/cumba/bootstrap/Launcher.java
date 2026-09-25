@@ -42,6 +42,26 @@ public final class Launcher
     /** System property selecting the {@link ErrorMode} for classpath expansion. */
     public static final String CLASSPATH_ERROR_MODE_PROPERTY = "classpath.error.mode";
 
+    /**
+     * System property naming one explicit user overlay file, replacing the config's
+     * {@code [bootstrap] user-config} candidates; see {@link UserConfig}.
+     */
+    public static final String USER_CONFIG_OVERRIDE_PROPERTY = "bootstrap.user.config";
+
+    /**
+     * System property the launcher publishes for the target program: the absolute path of the user
+     * overlay it applied, unset when none was. Part of the launcher's public contract - an
+     * application that logs it spells the same name, and its build should pin the two equal.
+     */
+    public static final String USER_CONFIG_APPLIED_PROPERTY = "bootstrap.user.config.applied";
+
+    /**
+     * System property the launcher publishes for the target program: where it looked for the user
+     * overlay, the resolved candidate paths joined with {@link java.io.File#pathSeparator}. Same
+     * contract as {@link #USER_CONFIG_APPLIED_PROPERTY}.
+     */
+    public static final String USER_CONFIG_CANDIDATES_PROPERTY = "bootstrap.user.config.candidates";
+
     /** Manifest header consulted for the target main class when the config omits it. */
     public static final String MANIFEST_MAIN_CLASS_ATTRIBUTE = "Bootstrap-Main-Class";
 
