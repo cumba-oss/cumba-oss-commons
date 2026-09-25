@@ -14,9 +14,11 @@ What it does, in order:
    order, resolving `${...}` references.
 5. **Build** a classpath from the `[classpath]` entries: interpolate,
    glob-expand, de-duplicate by canonical path.
-6. Build an isolated `URLClassLoader` (platform classloader as parent),
-   set it as the thread context classloader.
-7. Resolve the **target main class** and invoke
+6. Resolve the **target main class**.
+7. Apply the optional **user overlay** (see *User overlay* below) — only
+   now, so nothing in it can change the classpath or the main class.
+8. Build an isolated `URLClassLoader` (platform classloader as parent),
+   set it as the thread context classloader, and invoke
    `main(String[])`, passing the launcher's own arguments through.
 
 ## Running
@@ -66,9 +68,14 @@ ${app.home}/classes
 |---------------|-------------------------------------------------------------------|
 | `main-class`  | Fully-qualified target class with a `public static void main`.    |
 | `classloader` | `parent-first` (default) or `child-first` (see *Classloader*).    |
+| `user-config` | A candidate location of the user overlay. **Repeatable**, in order. |
+| `reserved`    | Comma-separated keys the user overlay may not set. Repeatable, merged; an empty value or a key with whitespace in it (a missing comma) is an error. |
 
 If `main-class` is omitted, the launcher falls back to a
-`Bootstrap-Main-Class` header in its own jar manifest.
+`Bootstrap-Main-Class` header in its own jar manifest. A `main-class`
+that is present but blank — including one that interpolates to nothing —
+counts as omitted, so `main-class = ${env:CUMBA_MAIN:-}` means "use the
+manifest's".
 
 ### `[properties]`
 
@@ -82,6 +89,12 @@ One filesystem entry per line, kept in declared order. Relative entries
 resolve against the **config file's directory**. Entries are interpolated
 then glob-expanded, and the final list is de-duplicated by canonical
 path (first occurrence wins) — so the same jar is never added twice.
+
+An entry that *interpolates to nothing* — `${env:EXTRA_LIBS}` with the
+variable exported but empty — is **not** a relative path meaning "here".
+It is routed through `classpath.error.mode` like a missing entry, because
+resolving it would silently place the config directory itself on the
+classpath in place of the jars the operator meant to add.
 
 ## Variable interpolation
 
@@ -98,6 +111,91 @@ error. `bootstrap.dir` is pre-seeded to the config file's directory, so
 `${bootstrap.dir}` is always available (and is also visible to the
 launched program as a system property).
 
+## User overlay
+
+An installed application's `.conf` is often not the user's to edit: it sits
+inside a signed macOS `.app`, under a read-only `Program Files`, and a
+re-install replaces it. The bundled config can therefore name a second,
+**user-owned** file whose `[properties]` are applied **after** its own and
+**win** over them:
+
+```ini
+[bootstrap]
+main-class  = com.example.App
+user-config = ${sys:user.home}/.example/app.conf
+reserved    = app.home, app.lib.dir
+```
+
+**Locating it.**
+
+* `user-config` may be repeated; the **first candidate that is an existing
+  regular file** is used, and none is the normal case (no overlay).
+* A candidate is resolved **leniently**: a `${...}` reference that is unset
+  or empty **and has no usable default** skips that candidate (so
+  `${env:APPDATA}/...` is simply passed over on Linux and macOS). A reference
+  whose default resolves is not skipped:
+  `${env:XDG_CONFIG_HOME:-${sys:user.home}/.config}` yields `~/.config`. A
+  candidate that resolves to an empty string is skipped too.
+  Syntax errors (an unterminated `${`, an empty name) still fail the launch —
+  also after a reference that is unset. The one exception is inside a
+  `:-default` that is never used: defaults are resolved lazily, as in the
+  shell, so a typo there fails only where the default is needed.
+* Candidates see the environment, the system properties as they were
+  **before** the bundled `[properties]` were applied, and `${bootstrap.dir}`
+  — never the bundled keys. A relative candidate resolves against
+  `bootstrap.dir`. ⚠ So a `user.home` set in either file does not move the
+  overlay; `${sys:user.home}` is the JVM's own.
+* `-Dbootstrap.user.config=<path>` replaces the candidate list with one file,
+  which must exist and be a regular file (relative: against the working
+  directory). It is honoured
+  **only when the config declares at least one `user-config`** — a config
+  without candidates has no overlay at all, whatever the command line says.
+* A blank `-Dbootstrap.user.config` counts as unset.
+
+**What it may contain.** `[properties]` only — any other section is an error.
+The overlay is applied after the classpath, the error mode and the main class
+are fixed, so it cannot change what code runs. These keys are **reserved** and
+rejected in the overlay (error naming the file and key): `bootstrap.dir`,
+`bootstrap.config`, `bootstrap.user.config`, `bootstrap.user.config.applied`,
+`bootstrap.user.config.candidates`, `bootstrap.error.dialog`,
+`classpath.error.mode` — plus whatever the bundled config lists in
+`[bootstrap] reserved`. A key the launcher has already consumed but that is
+not reserved may be set; it only becomes a system property the application
+sees, with no launcher effect.
+
+**Precedence.**
+
+* An overlay value is set **unconditionally**: a bare `key = value` beats the
+  bundled value **and** a `-D` on the command line.
+* `${sys:...}` in the overlay resolves against the snapshot taken at the start
+  of the launch — the JVM's own properties and the command line, not the
+  bundled values. So `key = ${sys:key:-value}` lets a `-D` win for that key.
+* ⚠ Write `${sys:key:-value}`, never `${key:-value}`: a bare `${key}` sees the
+  bundled keys first, so it resolves to the bundled value and the entry
+  silently does nothing.
+* ⚠ Environment variables reach an overlay entry only through `${env:...}` in
+  that entry: `key = ${env:APP_KEY:-${sys:key:-value}}`. An environment
+  default baked into the *bundled* value is overridden like any other value.
+* **Values, not inputs:** overriding a key does not re-derive bundled keys
+  that were computed from it — they are already resolved strings.
+
+**Published for the application** (only when the config declares
+`user-config`; otherwise both are cleared): `bootstrap.user.config.applied` —
+the absolute path of the overlay applied (unset if none);
+`bootstrap.user.config.candidates` — the resolved candidate paths (the
+override alone when it is in effect), joined with the platform path separator,
+so the application can log where it looked. It is empty when every candidate
+was skipped, and meant for a log line: a path containing the separator makes
+the list ambiguous.
+
+**Errors** in the overlay name the overlay's path; parse errors also the line
+(resolution errors do not — entries carry no line numbers).
+
+**Scope of the guarantee.** The overlay cannot change what code runs. That is
+a statement about the *user file*, not about the local user: a `-D` in
+`JAVA_TOOL_OPTIONS` still reaches every `${sys:...}` in the bundled config, as
+it always has.
+
 ## Globbing
 
 `*` and `?` match within a single path segment; `**` matches across
@@ -111,7 +209,21 @@ directory boundaries (standard `java.nio` glob semantics):
 
 Glob expansion does **not** follow symbolic links (standard `java.nio`
 `Files.walk` behaviour): jars reachable only through a symlinked
-directory under a `**` glob are not descended into.
+directory under a `**` glob are not descended into. A dangling symlink
+*is* matched and lands on the classpath as an entry that resolves to
+nothing (harmless — `URLClassLoader` ignores it).
+
+Matches are not filtered to regular files: a **directory** whose name fits
+the pattern is added like any other classpath entry. The directory being
+walked is never added to itself.
+
+Glob entries are portable. On Windows both `/` and `\` separate segments
+in a `[classpath]` line and may be mixed freely (`${app.home}/lib/*.jar`
+works with `app.home = C:\app`); the entry is split as a *string* at its
+first glob-bearing segment, so no glob character is ever handed to the
+Windows path parser, which rejects `*` and `?` outright. Matching is
+case-insensitive on Windows and case-sensitive on UNIX — the platform's
+own `java.nio` behaviour.
 
 ### `classpath.error.mode`
 
@@ -130,13 +242,20 @@ the **platform** classloader (JDK only) as parent.
 * `parent-first` (default) — standard delegation; the parent (JDK) is
   consulted first. Correct for almost all deployments.
 * `child-first` — the configured classpath is consulted before the
-  parent; `java.*`/`javax.*`/`jdk.*`/`sun.*` are always delegated to the
-  parent so core classes can never be shadowed. An escape hatch for
-  unusual version-override needs.
+  parent; the reserved `java.*`/`javax.*`/`jdk.*`/`sun.*` namespaces are
+  always delegated to the parent, so nothing in them can be shadowed. An
+  escape hatch for unusual version-override needs.
+
+  ⚠ Other packages the platform classloader also exports — `org.w3c.dom`,
+  `org.xml.sax`, `com.sun.*` — are **not** reserved and *can* be shadowed
+  under `child-first`. That is the point of the mode (a legacy
+  `xml-apis.jar` is the classic case), but a class shadowed on one side of
+  a JDK API boundary and not the other produces a `ClassCastException` at
+  first use, so shadow them deliberately or not at all.
 
 ## Exit behaviour
 
-A launcher-side failure (bad config, unresolved variable, missing
+A launcher-side failure (bad config or user overlay, unresolved variable, missing
 classpath entry under `ERROR`, target class/main not found) prints a
 `bootstrap: ...` message to stderr and exits with status `2`. Otherwise
 the target program controls its own exit status; exceptions it throws
@@ -152,6 +271,12 @@ key, because the failure to report is often that the config itself cannot be
 read or parsed. Without it — the default, and what console and CLI launchers
 use — only stderr is written. The exit status is `2` either way.
 
+## Known limitations
+
+* `java.class.path` is **not** updated to the assembled classpath. Code in
+  the target program that scans that property, or forks a JVM "with the
+  current classpath", sees only the launcher jar.
+
 ## Trust model
 
 The config file is **operator-owned and trusted**. Classpath entries
@@ -163,6 +288,10 @@ arbitrary jars on the classpath, and that code runs in-process. Treat
 the config file and the launching environment with the same trust as the
 application itself; the launcher applies no sandboxing or path
 containment.
+
+The **user overlay** is user-owned and trusted the same way for what it can
+do — set system properties the application reads — but it cannot reach the
+classpath, the main class or the launcher's own keys (see *User overlay*).
 
 `Launcher.launch` also mutates global JVM state (system properties, the
 thread context classloader) and does not restore it — it is built for a

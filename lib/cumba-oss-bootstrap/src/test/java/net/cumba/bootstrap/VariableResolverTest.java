@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 
@@ -317,5 +318,98 @@ class VariableResolverTest
     {
         BootstrapException ex = assertThrows(BootstrapException.class, () -> resolve("${a$}"));
         assertTrue(ex.getMessage().contains("unresolved variable"), ex::getMessage);
+    }
+
+
+    private Optional<String> candidate(String value)
+    {
+        return resolver().resolveCandidate(value, SRC);
+    }
+
+
+    @Test
+    void candidateWithAnUnsetReferenceIsEmpty()
+    {
+        assertEquals(Optional.empty(), candidate("${env:APPDATA}/CumbaDataBrowser/x.conf"));
+    }
+
+
+    @Test
+    void candidateWithAnEmptyReferenceIsEmpty()
+    {
+        // Strict resolution yields "" here; a candidate must not become the relative path "/x".
+        env.put("APPDATA", "");
+        assertEquals(Optional.empty(), candidate("${env:APPDATA}/x.conf"));
+        assertEquals("/x.conf", resolve("${env:APPDATA}/x.conf"));
+    }
+
+
+    @Test
+    void candidateWithAllReferencesSetIsResolved()
+    {
+        sys.put("user.home", "/home/u");
+        assertEquals(Optional.of("/home/u/.cumbaDataBrowser/databrowser.conf"),
+                candidate("${sys:user.home}/.cumbaDataBrowser/databrowser.conf"));
+    }
+
+
+    @Test
+    void candidateWithAnUnsetReferenceAndAResolvableDefaultUsesTheDefault()
+    {
+        // M-B: flagging 'empty' before the default branch would skip this on every normal system.
+        sys.put("user.home", "/home/u");
+        assertEquals(Optional.of("/home/u/.config/app.conf"),
+                candidate("${env:XDG_CONFIG_HOME:-${sys:user.home}/.config}/app.conf"));
+    }
+
+
+    @Test
+    void candidateWithASetButEmptyReferenceAndADefaultUsesTheDefault()
+    {
+        env.put("XDG_CONFIG_HOME", "");
+        sys.put("user.home", "/home/u");
+        assertEquals(Optional.of("/home/u/.config/app.conf"),
+                candidate("${env:XDG_CONFIG_HOME:-${sys:user.home}/.config}/app.conf"));
+    }
+
+
+    @Test
+    void candidateWhoseDefaultIsItselfUnresolvableIsEmpty()
+    {
+        assertEquals(Optional.empty(),
+                candidate("${env:XDG_CONFIG_HOME:-${sys:user.home}/.config}/app.conf"));
+    }
+
+
+    @Test
+    void candidateWithAnUnresolvableNestedNameIsEmpty()
+    {
+        assertEquals(Optional.empty(), candidate("${env:${sys:which}}/app.conf"));
+    }
+
+
+    @Test
+    void candidateSyntaxErrorsStillThrow()
+    {
+        assertThrows(BootstrapException.class, () -> candidate("${env:APPDATA/x.conf"));
+        assertThrows(BootstrapException.class, () -> candidate("${}/x.conf"));
+        assertThrows(BootstrapException.class, () -> candidate("${env:}/x.conf"));
+    }
+
+
+    @Test
+    void candidateSyntaxErrorsAfterAnUnsetReferenceStillThrow()
+    {
+        // Otherwise the typo is skipped where APPDATA is unset and fatal only where it is set.
+        assertThrows(BootstrapException.class, () -> candidate("${env:APPDATA}/${env:TYPO/x.conf"));
+        assertThrows(BootstrapException.class, () -> candidate("${env:APPDATA}/${}/x.conf"));
+    }
+
+
+    @Test
+    void candidateSeesEarlierPropertiesAndLiteralDollars()
+    {
+        earlier.put("bootstrap.dir", "/opt/app");
+        assertEquals(Optional.of("/opt/app/$user.conf"), candidate("${bootstrap.dir}/$$user.conf"));
     }
 }

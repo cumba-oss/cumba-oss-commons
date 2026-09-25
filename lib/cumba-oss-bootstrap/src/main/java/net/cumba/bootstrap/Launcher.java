@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import org.jspecify.annotations.Nullable;
@@ -24,7 +25,8 @@ import org.jspecify.annotations.Nullable;
 /**
  * Applies a parsed {@link BootstrapConfig} and hands control to the target program: seeds
  * {@code bootstrap.dir}, applies system properties, assembles and de-duplicates the classpath,
- * builds an isolated classloader, then reflectively invokes the target {@code main}.
+ * resolves the main class, applies the optional user overlay ({@link UserConfig}), builds an
+ * isolated classloader, then reflectively invokes the target {@code main}.
  *
  * <p>
  * {@link #launch} mutates global JVM state (system properties and the thread context classloader)
@@ -67,35 +69,92 @@ public final class Launcher
     {
         Path baseDir = configDirectory(config.source());
         System.setProperty(BOOTSTRAP_DIR_PROPERTY, baseDir.toString());
+        // Taken AFTER bootstrap.dir and BEFORE the bundled [properties]: the user overlay's
+        // ${sys:...} must see the JVM's own properties and the command line, not the bundled
+        // values - otherwise ${sys:k:-v} in the user file could never let a -D win.
+        Properties snapshot = (Properties) System.getProperties().clone();
 
         Map<String, String> resolvedProperties = new LinkedHashMap<>();
         resolvedProperties.put(BOOTSTRAP_DIR_PROPERTY, baseDir.toString());
         VariableResolver resolver = new VariableResolver(System::getenv, System::getProperty,
                 resolvedProperties);
 
-        applyProperties(config, resolver, resolvedProperties);
+        applyProperties(config.properties(), config.source(), resolver, resolvedProperties);
 
         ErrorMode errorMode = ErrorMode
                 .fromProperty(System.getProperty(CLASSPATH_ERROR_MODE_PROPERTY));
         URL[] classpath = buildClasspath(config, resolver, baseDir, errorMode);
+        String mainClassName = resolveMainClassName(config, resolver, protectionDomain);
+
+        // The class path, error mode and main class are fixed above, so nothing the user overlay
+        // sets can change what code runs.
+        Optional<UserConfig.Location> userConfig = UserConfig.locate(config, baseDir,
+                System::getenv, snapshot::getProperty);
+        if (userConfig.isPresent())
+        {
+            applyUserConfig(config, userConfig.get(), snapshot, resolvedProperties);
+        }
+        else
+        {
+            // No overlay declared: nothing is published, so a stale value cannot claim one.
+            System.clearProperty(UserConfig.APPLIED_PROPERTY);
+            System.clearProperty(UserConfig.CANDIDATES_PROPERTY);
+        }
 
         ClassLoader loader = createClassLoader(classpath, config.classLoaderMode());
         Thread.currentThread().setContextClassLoader(loader);
-
-        String mainClassName = resolveMainClassName(config, resolver, protectionDomain);
         invokeMain(mainClassName, loader, args);
     }
 
 
-    private static void applyProperties(BootstrapConfig config, VariableResolver resolver,
-            Map<String, String> resolvedProperties)
+    private static void applyProperties(List<Map.Entry<String, String>> properties, Path source,
+            VariableResolver resolver, Map<String, String> resolvedProperties)
     {
-        for (Map.Entry<String, String> property : config.properties())
+        for (Map.Entry<String, String> property : properties)
         {
-            String value = resolver.resolve(property.getValue(), config.source());
+            String value = resolver.resolve(property.getValue(), source);
             System.setProperty(property.getKey(), value);
             resolvedProperties.put(property.getKey(), value);
         }
+    }
+
+
+    /**
+     * Applies the user overlay, if one was found, and publishes where the launcher looked. Overlay
+     * values are set unconditionally, so a bare user entry wins over the bundled value and over a
+     * {@code -D}; a {@code ${sys:...}} in it resolves against the start-of-launch snapshot, while a
+     * bare {@code ${name}} still sees the bundled keys.
+     */
+    private static void applyUserConfig(BootstrapConfig config, UserConfig.Location location,
+            Properties snapshot, Map<String, String> resolvedProperties)
+    {
+        Optional<Path> applied = location.applied();
+        if (applied.isPresent())
+        {
+            Path overlay = applied.get();
+            List<Map.Entry<String, String>> properties = ConfigParser.parseOverlay(
+                    ConfigFiles.read(overlay, "user config",
+                            "chosen by -D" + UserConfig.OVERRIDE_PROPERTY
+                                    + " or [bootstrap] user-config in " + config.source()),
+                    overlay);
+            for (Map.Entry<String, String> property : properties)
+            {
+                if (UserConfig.isReserved(config, property.getKey()))
+                {
+                    throw new BootstrapException(overlay + ": '" + property.getKey()
+                            + "' is reserved and cannot be set in a user configuration");
+                }
+            }
+            VariableResolver overlayResolver = new VariableResolver(System::getenv,
+                    snapshot::getProperty, resolvedProperties);
+            applyProperties(properties, overlay, overlayResolver, resolvedProperties);
+            System.setProperty(UserConfig.APPLIED_PROPERTY, overlay.toString());
+        }
+        else
+        {
+            System.clearProperty(UserConfig.APPLIED_PROPERTY);
+        }
+        System.setProperty(UserConfig.CANDIDATES_PROPERTY, location.joinedCandidates());
     }
 
 

@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class ConfigParserTest
@@ -184,5 +186,121 @@ class ConfigParserTest
         assertEquals("a\uFEFF", ConfigParser.withoutByteOrderMark("a\uFEFF"));
         // Past line 1 a U+FEFF is not a BOM and is left for the parser to reject.
         assertThrows(BootstrapException.class, () -> parse("[bootstrap]", "\uFEFFmain-class"));
+    }
+
+
+    @Test
+    void userConfigIsRepeatableAndKeepsItsOrder()
+    {
+        BootstrapConfig cfg = parse("[bootstrap]", "user-config = ${env:A}/a.conf",
+                "user-config = b.conf", "main-class = x.Y");
+        assertEquals(List.of("${env:A}/a.conf", "b.conf"), cfg.userConfigCandidates());
+    }
+
+
+    @Test
+    void noUserConfigMeansNoCandidatesAndNoReservedKeys()
+    {
+        BootstrapConfig cfg = parse("[bootstrap]", "main-class = x.Y");
+        assertEquals(List.of(), cfg.userConfigCandidates());
+        assertEquals(Set.of(), cfg.reservedKeys());
+    }
+
+
+    @Test
+    void emptyUserConfigFails()
+    {
+        BootstrapException ex = assertThrows(BootstrapException.class,
+                () -> parse("[bootstrap]", "user-config ="));
+        assertEquals("test.conf:2: empty value for [bootstrap] key 'user-config'", ex.getMessage());
+    }
+
+
+    @Test
+    void reservedKeysAreCommaSeparatedMergedAndStripped()
+    {
+        BootstrapConfig cfg = parse("[bootstrap]", "reserved = a.b ,c.d,, ", "reserved = e");
+        assertEquals(Set.of("a.b", "c.d", "e"), cfg.reservedKeys());
+    }
+
+
+    @Test
+    void emptyReservedFails()
+    {
+        BootstrapException ex = assertThrows(BootstrapException.class,
+                () -> parse("[bootstrap]", "reserved ="));
+        assertEquals("test.conf:2: empty value for [bootstrap] key 'reserved'", ex.getMessage());
+    }
+
+
+    @Test
+    void reservedOfOnlyCommasFails()
+    {
+        BootstrapException ex = assertThrows(BootstrapException.class,
+                () -> parse("[bootstrap]", "reserved = , ,"));
+        assertEquals("test.conf:2: empty value for [bootstrap] key 'reserved'", ex.getMessage());
+    }
+
+
+    @Test
+    void reservedKeysMissingACommaFail()
+    {
+        // 'a.b c.d' as one key would match nothing: both would silently stay unreserved.
+        BootstrapException ex = assertThrows(BootstrapException.class,
+                () -> parse("[bootstrap]", "reserved = a.b c.d, e"));
+        assertEquals("test.conf:2: [bootstrap] reserved takes comma-separated keys, not 'a.b c.d'",
+                ex.getMessage());
+    }
+
+
+    @Test
+    void overlayParsesProperties()
+    {
+        List<Map.Entry<String, String>> props = ConfigParser.parseOverlay(
+                List.of("\uFEFF# user", "", "[Properties]", "a = 1", "; c", "b = ${a}"), SRC);
+        assertEquals(List.of(Map.entry("a", "1"), Map.entry("b", "${a}")), props);
+    }
+
+
+    @Test
+    void emptyOverlayHasNoProperties()
+    {
+        assertEquals(List.of(), ConfigParser.parseOverlay(List.of("# nothing yet"), SRC));
+    }
+
+
+    @Test
+    void overlayRejectsTheClasspathSection()
+    {
+        BootstrapException ex = assertThrows(BootstrapException.class, () -> ConfigParser
+                .parseOverlay(List.of("[properties]", "a = 1", "[classpath]", "/evil/*.jar"), SRC));
+        assertEquals("test.conf:3: a user configuration may hold only [properties], not"
+                + " [classpath]", ex.getMessage());
+    }
+
+
+    @Test
+    void overlayRejectsTheBootstrapSection()
+    {
+        BootstrapException ex = assertThrows(BootstrapException.class,
+                () -> ConfigParser.parseOverlay(List.of("[bootstrap]", "main-class = x.Y"), SRC));
+        assertTrue(ex.getMessage().startsWith("test.conf:1: "), ex::getMessage);
+    }
+
+
+    @Test
+    void overlayRejectsAnEntryBeforeTheHeader()
+    {
+        BootstrapException ex = assertThrows(BootstrapException.class,
+                () -> ConfigParser.parseOverlay(List.of("a = 1"), SRC));
+        assertEquals("test.conf:1: entry before the [properties] header: a = 1", ex.getMessage());
+    }
+
+
+    @Test
+    void overlayRejectsAMalformedEntry()
+    {
+        assertThrows(BootstrapException.class,
+                () -> ConfigParser.parseOverlay(List.of("[properties]", "no equals"), SRC));
     }
 }

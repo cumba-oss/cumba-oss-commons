@@ -154,7 +154,10 @@ class BootstrapTest
     @Test
     void errorDialogTextCarriesTheFailure()
     {
-        assertTrue(Bootstrap.errorDialogText("config broken").contains("config broken"));
+        String text = Bootstrap.errorDialogText("config broken");
+        assertTrue(text.contains("config broken"));
+        // An error in the user overlay must not send the user only to the file beside the jar.
+        assertTrue(text.contains("from your user configuration file"), text);
     }
 
 

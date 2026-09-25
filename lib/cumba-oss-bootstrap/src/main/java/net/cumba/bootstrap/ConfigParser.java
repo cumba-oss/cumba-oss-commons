@@ -2,10 +2,12 @@ package net.cumba.bootstrap;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Hand-written, dependency-free parser for the bootstrap INI-style config.
@@ -21,7 +23,13 @@ import java.util.Optional;
  * the <em>first</em> {@code =} (so values may contain {@code =}).
  * <li>In {@code [classpath]} each non-blank line is a single classpath entry (not
  * {@code key = value}).
+ * <li>In {@code [bootstrap]} a repeated key overwrites, except {@code user-config} (each occurrence
+ * adds a candidate, in order) and {@code reserved} (each occurrence adds its comma-separated keys).
  * </ul>
+ *
+ * <p>
+ * A user overlay ({@link #parseOverlay}) uses the same grammar but may hold only
+ * {@code [properties]}.
  *
  * <p>
  * The parser is pure: it takes the already-read lines and returns a {@link BootstrapConfig}, which
@@ -51,6 +59,8 @@ public final class ConfigParser
     {
         List<Map.Entry<String, String>> properties = new ArrayList<>();
         List<String> classpath = new ArrayList<>();
+        List<String> userConfigCandidates = new ArrayList<>();
+        Set<String> reservedKeys = new LinkedHashSet<>();
         String mainClass = null;
         ClassLoaderMode mode = ClassLoaderMode.PARENT_FIRST;
         String section = null;
@@ -78,6 +88,9 @@ public final class ConfigParser
                 {
                 case "main-class" -> mainClass = kv.getValue();
                 case "classloader" -> mode = ClassLoaderMode.fromToken(kv.getValue(), source, i);
+                case "user-config" -> userConfigCandidates.add(requireValue(kv, source, i));
+                case "reserved" -> reservedKeys
+                        .addAll(keyList(requireValue(kv, source, i), source, i));
                 default -> throw BootstrapException.at(source, i,
                         "unknown [bootstrap] key '" + kv.getKey() + "'");
                 }
@@ -88,7 +101,94 @@ public final class ConfigParser
             }
         }
         return new BootstrapConfig(source, Optional.ofNullable(mainClass), mode, properties,
-                classpath);
+                classpath, userConfigCandidates, reservedKeys);
+    }
+
+
+    /**
+     * Parses a user overlay: the same grammar as {@link #parse}, but only {@code [properties]} is
+     * allowed. The class path, the main class and the class loader are the installation's; a user
+     * file must not be able to change what code runs.
+     *
+     * @param lines
+     *            the file content, one entry per line, in order
+     * @param source
+     *            the overlay file (used only for error messages)
+     * @return the ordered {@code [properties]} key/value pairs (pre-interpolation)
+     * @throws BootstrapException
+     *             on a structural problem, or any section other than {@code [properties]}
+     */
+    public static List<Map.Entry<String, String>> parseOverlay(List<String> lines, Path source)
+    {
+        List<Map.Entry<String, String>> properties = new ArrayList<>();
+        String section = null;
+        for (int i = 0; i < lines.size(); i++)
+        {
+            String line = (i == 0 ? withoutByteOrderMark(lines.get(i)) : lines.get(i)).strip();
+            if (line.isEmpty() || line.charAt(0) == '#' || line.charAt(0) == ';')
+            {
+                continue;
+            }
+            if (line.charAt(0) == '[')
+            {
+                section = parseSectionHeader(line, source, i);
+                if (!"properties".equals(section))
+                {
+                    throw BootstrapException.at(source, i, "a user configuration may hold only"
+                            + " [properties], not [" + section + "]");
+                }
+                continue;
+            }
+            if (section == null)
+            {
+                throw BootstrapException.at(source, i,
+                        "entry before the [properties] header: " + line);
+            }
+            properties.add(splitKeyValue(source, i, line));
+        }
+        return properties;
+    }
+
+
+    private static String requireValue(Map.Entry<String, String> kv, Path source, int zeroBasedLine)
+    {
+        if (kv.getValue().isEmpty())
+        {
+            throw BootstrapException.at(source, zeroBasedLine,
+                    "empty value for [bootstrap] key '" + kv.getKey() + "'");
+        }
+        return kv.getValue();
+    }
+
+
+    /**
+     * The comma-separated keys of a {@code reserved} value, stripped, blanks dropped. A key with
+     * whitespace inside is rejected: no property key can contain it, so {@code reserved = a b} (a
+     * missing comma) would otherwise reserve nothing, silently.
+     */
+    private static List<String> keyList(String value, Path source, int zeroBasedLine)
+    {
+        List<String> keys = new ArrayList<>();
+        for (String key : value.split(",", -1))
+        {
+            String stripped = key.strip();
+            if (stripped.chars().anyMatch(Character::isWhitespace))
+            {
+                throw BootstrapException.at(source, zeroBasedLine,
+                        "[bootstrap] reserved takes comma-separated keys, not '" + stripped + "'");
+            }
+            if (!stripped.isEmpty())
+            {
+                keys.add(stripped);
+            }
+        }
+        if (keys.isEmpty())
+        {
+            // 'reserved = ,' would otherwise pass the empty-value check and reserve nothing.
+            throw BootstrapException.at(source, zeroBasedLine,
+                    "empty value for [bootstrap] key 'reserved'");
+        }
+        return keys;
     }
 
 

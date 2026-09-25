@@ -1,7 +1,9 @@
 package net.cumba.bootstrap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,6 +13,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.CodeSource;
@@ -19,6 +22,7 @@ import java.security.cert.Certificate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -64,6 +68,12 @@ class LauncherTest
         System.clearProperty("launcher.test.out");
         System.clearProperty(Launcher.BOOTSTRAP_DIR_PROPERTY);
         System.clearProperty(Launcher.CLASSPATH_ERROR_MODE_PROPERTY);
+        for (String key : List.of("corej.rules.dir", "cumba.lib.dir", "launcher.test.home",
+                UserConfig.OVERRIDE_PROPERTY, UserConfig.APPLIED_PROPERTY,
+                UserConfig.CANDIDATES_PROPERTY))
+        {
+            System.clearProperty(key);
+        }
     }
 
 
@@ -398,5 +408,270 @@ class LauncherTest
 
         assertInstanceOf(BootstrapException.class, laundered);
         assertSame(cause, laundered.getCause());
+    }
+
+    // ---- user overlay -------------------------------------------------------------------------
+
+    private static final String USER_CANDIDATE = "${sys:launcher.test.home}/user.conf";
+
+    private Path userHome() throws IOException
+    {
+        Path home = Files.createDirectories(tmp.resolve("home"));
+        System.setProperty("launcher.test.home", home.toString());
+        return home;
+    }
+
+
+    private Path userFile(String... lines) throws IOException
+    {
+        return Files.write(userHome().resolve("user.conf"), List.of(lines));
+    }
+
+
+    private BootstrapConfig overlayConfig(List<Map.Entry<String, String>> extra,
+            List<String> classpath, Set<String> reserved)
+    {
+        List<Map.Entry<String, String>> properties = new java.util.ArrayList<>(
+                List.of(Map.entry("launcher.test.out", out.toString()), Map.entry("foo", "bar")));
+        properties.addAll(extra);
+        return new BootstrapConfig(confPath, Optional.of(TARGET), ClassLoaderMode.PARENT_FIRST,
+                properties, classpath, List.of(USER_CANDIDATE), reserved);
+    }
+
+
+    private BootstrapConfig overlayConfig(Map.Entry<String, String> extra)
+    {
+        return overlayConfig(List.of(extra), List.of(testClasses.toString()), Set.of());
+    }
+
+
+    private void launch(BootstrapConfig cfg) throws Exception
+    {
+        Launcher.launch(cfg, new String[] {}, getClass().getProtectionDomain());
+    }
+
+
+    @Test
+    void aBareUserValueBeatsTheBundledValueAndADashD() throws Exception
+    {
+        System.setProperty("foo", "from-command-line");
+        Path user = userFile("[properties]", "foo = from-user");
+
+        launch(overlayConfig(List.of(), List.of(testClasses.toString()), Set.of()));
+
+        assertTrue(Files.readAllLines(out).contains("foo=from-user"),
+                () -> "the user value must win (D1)");
+        assertEquals(user.toString(), System.getProperty(UserConfig.APPLIED_PROPERTY));
+        assertEquals(user.toString(), System.getProperty(UserConfig.CANDIDATES_PROPERTY));
+    }
+
+
+    @Test
+    void sysInTheUserFileSeesTheSnapshotNotTheBundledValue() throws Exception
+    {
+        // H2: with the bundled value visible, ${sys:k:-v} would always return it and v never.
+        userFile("[properties]", "corej.rules.dir = ${sys:corej.rules.dir:-/u}");
+
+        launch(overlayConfig(Map.entry("corej.rules.dir", "${sys:corej.rules.dir:-/bundled}")));
+
+        assertEquals("/u", System.getProperty("corej.rules.dir"));
+    }
+
+
+    @Test
+    void sysInTheUserFileLetsADashDWin() throws Exception
+    {
+        System.setProperty("corej.rules.dir", "/d");
+        userFile("[properties]", "corej.rules.dir = ${sys:corej.rules.dir:-/u}");
+
+        // A PLAIN bundled value: with ${sys:...} there the -D would win in the bundled file already
+        // and this could not tell a snapshot lookup from a skipped overlay.
+        launch(overlayConfig(Map.entry("corej.rules.dir", "/bundled")));
+
+        assertEquals("/d", System.getProperty("corej.rules.dir"));
+    }
+
+
+    @Test
+    void aBareReferenceInTheUserFileSeesTheBundledKeys() throws Exception
+    {
+        // L6: this is why '${k:-v}' in a user file keeps the bundled value.
+        userFile("[properties]", "foo = ${foo}-and-user", "bootstrap.seen = ${bootstrap.dir}");
+
+        launch(overlayConfig(List.of(), List.of(testClasses.toString()), Set.of()));
+
+        List<String> recorded = Files.readAllLines(out);
+        assertTrue(recorded.contains("foo=bar-and-user"), recorded::toString);
+        assertEquals(tmp.toAbsolutePath().normalize().toString(),
+                System.getProperty("bootstrap.seen"));
+        System.clearProperty("bootstrap.seen");
+    }
+
+
+    @Test
+    void theUserFileCannotChangeTheClasspath() throws Exception
+    {
+        // H1: the overlay is applied after the class path is built, so moving cumba.lib.dir to a
+        // directory holding a jar must not load that jar - the value only reaches the application.
+        Path markerDir = Files.createDirectories(tmp.resolve("marker"));
+        Path marker = markerDir.resolve("marker.jar");
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(marker)))
+        {
+            jar.putNextEntry(new JarEntry("marker.txt"));
+            jar.closeEntry();
+        }
+        Files.createDirectories(tmp.resolve("lib"));
+        userFile("[properties]", "cumba.lib.dir = " + markerDir);
+
+        launch(overlayConfig(List.of(Map.entry("cumba.lib.dir", "${bootstrap.dir}/lib")),
+                List.of(testClasses.toString(), "${cumba.lib.dir}/*.jar"), Set.of()));
+
+        // The launcher's loader, owned by nobody once the target returned: close it here.
+        try (URLClassLoader loader = assertInstanceOf(URLClassLoader.class,
+                Thread.currentThread().getContextClassLoader()))
+        {
+            assertEquals(List.of(testClasses.toUri().toURL()), List.of(loader.getURLs()));
+        }
+        assertEquals(markerDir.toString(), System.getProperty("cumba.lib.dir"));
+        assertEquals(tmp.toAbsolutePath().normalize().toString(),
+                System.getProperty(Launcher.BOOTSTRAP_DIR_PROPERTY));
+    }
+
+
+    @Test
+    void aBuiltInReservedKeyInTheUserFileFails() throws Exception
+    {
+        Path user = userFile("[properties]", "classpath.error.mode = ERROR");
+        BootstrapConfig cfg = overlayConfig(List.of(), List.of(testClasses.toString()), Set.of());
+
+        BootstrapException ex = assertThrows(BootstrapException.class, () -> launch(cfg));
+        assertEquals(user + ": 'classpath.error.mode' is reserved and cannot be set in a user"
+                + " configuration", ex.getMessage());
+        assertFalse(Files.exists(out), "the target must not run");
+    }
+
+
+    @Test
+    void aReservedKeyDeclaredByTheConfigFails() throws Exception
+    {
+        userFile("[properties]", "foo = fine", "cumba.app.dir = /elsewhere");
+        BootstrapConfig cfg = overlayConfig(List.of(), List.of(testClasses.toString()),
+                Set.of("cumba.app.dir"));
+
+        BootstrapException ex = assertThrows(BootstrapException.class, () -> launch(cfg));
+        assertTrue(ex.getMessage().contains("'cumba.app.dir' is reserved"), ex::getMessage);
+        assertEquals("bar", System.getProperty("foo"), "nothing of a rejected file is applied");
+    }
+
+
+    @Test
+    void aClasspathSectionInTheUserFileFailsNamingTheUserFile() throws Exception
+    {
+        Path user = userFile("[classpath]", "/evil.jar");
+        BootstrapConfig cfg = overlayConfig(List.of(), List.of(testClasses.toString()), Set.of());
+
+        BootstrapException ex = assertThrows(BootstrapException.class, () -> launch(cfg));
+        assertTrue(ex.getMessage().startsWith(user + ":1: "), ex::getMessage);
+    }
+
+
+    @Test
+    void anUnresolvableUserValueNamesTheUserFile() throws Exception
+    {
+        Path user = userFile("[properties]", "foo = ${sys:launcher.test.nope}");
+        BootstrapConfig cfg = overlayConfig(List.of(), List.of(testClasses.toString()), Set.of());
+
+        BootstrapException ex = assertThrows(BootstrapException.class, () -> launch(cfg));
+        assertTrue(ex.getMessage().startsWith(user + ": unresolved variable"), ex::getMessage);
+    }
+
+
+    @Test
+    void noUserFilePublishesWhereItLookedAndClearsApplied() throws Exception
+    {
+        Path home = userHome();
+        System.setProperty(UserConfig.APPLIED_PROPERTY, "stale");
+
+        launch(overlayConfig(List.of(), List.of(testClasses.toString()), Set.of()));
+
+        assertTrue(Files.readAllLines(out).contains("foo=bar"));
+        assertNull(System.getProperty(UserConfig.APPLIED_PROPERTY));
+        assertEquals(home.resolve("user.conf").toString(),
+                System.getProperty(UserConfig.CANDIDATES_PROPERTY));
+    }
+
+
+    @Test
+    void theSnapshotIsTakenAfterBootstrapDirIsSet() throws Exception
+    {
+        // Section 3.2 step 1: ${sys:bootstrap.dir} must work in the user file and in a candidate
+        // exactly as in the bundled file. A snapshot taken before bootstrap.dir is seeded fails
+        // both: the candidate below would be skipped and the entry would not resolve.
+        Files.write(tmp.resolve("portable.conf"),
+                List.of("[properties]", "portable.seen = ${sys:bootstrap.dir}"));
+        BootstrapConfig cfg = new BootstrapConfig(confPath, Optional.of(TARGET),
+                ClassLoaderMode.PARENT_FIRST,
+                List.of(Map.entry("launcher.test.out", out.toString()), Map.entry("foo", "bar")),
+                List.of(testClasses.toString()), List.of("${sys:bootstrap.dir}/portable.conf"),
+                Set.of());
+        try
+        {
+            launch(cfg);
+
+            assertEquals(tmp.toAbsolutePath().normalize().toString(),
+                    System.getProperty("portable.seen"));
+        }
+        finally
+        {
+            System.clearProperty("portable.seen");
+        }
+    }
+
+
+    @Test
+    void aConfigWithoutCandidatesPublishesNothingAndIgnoresTheOverride() throws Exception
+    {
+        Path user = userFile("[properties]", "foo = from-user");
+        System.setProperty(UserConfig.OVERRIDE_PROPERTY, user.toString());
+        // Stale values from a -D must not survive to claim an overlay that was never applied.
+        System.setProperty(UserConfig.APPLIED_PROPERTY, "stale");
+        System.setProperty(UserConfig.CANDIDATES_PROPERTY, "stale");
+
+        launch(targetConfig(ClassLoaderMode.PARENT_FIRST));
+
+        assertTrue(Files.readAllLines(out).contains("foo=bar"));
+        assertNull(System.getProperty(UserConfig.APPLIED_PROPERTY));
+        assertNull(System.getProperty(UserConfig.CANDIDATES_PROPERTY));
+    }
+
+
+    @Test
+    void theOverrideIsReadFromTheCommandLine() throws Exception
+    {
+        Path other = Files.write(tmp.resolve("other.conf"),
+                List.of("[properties]", "foo = from-override"));
+        userFile("[properties]", "foo = from-user");
+        System.setProperty(UserConfig.OVERRIDE_PROPERTY, other.toString());
+
+        launch(overlayConfig(List.of(), List.of(testClasses.toString()), Set.of()));
+
+        assertTrue(Files.readAllLines(out).contains("foo=from-override"));
+        assertEquals(other.toString(), System.getProperty(UserConfig.APPLIED_PROPERTY));
+    }
+
+
+    @Test
+    void theOverlayIsReadOnlyAfterTheMainClassIsResolved() throws Exception
+    {
+        // A config that cannot start must report that, not a problem in the user file.
+        userFile("[classpath]", "/evil.jar");
+        BootstrapConfig cfg = new BootstrapConfig(confPath, Optional.empty(),
+                ClassLoaderMode.PARENT_FIRST, List.of(), List.of(), List.of(USER_CANDIDATE),
+                Set.of());
+        ProtectionDomain pd = new ProtectionDomain(null, null);
+
+        BootstrapException ex = assertThrows(BootstrapException.class,
+                () -> Launcher.launch(cfg, new String[] {}, pd));
+        assertTrue(ex.getMessage().contains("no target main class"), ex::getMessage);
     }
 }

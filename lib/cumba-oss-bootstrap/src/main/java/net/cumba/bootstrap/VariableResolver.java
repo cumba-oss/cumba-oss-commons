@@ -2,7 +2,10 @@ package net.cumba.bootstrap;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Resolves {@code ${...}} references in config values. The lookups are injected so the resolver can
@@ -77,6 +80,47 @@ public final class VariableResolver
      */
     public String resolve(String value, Path source)
     {
+        // Strict mode never yields null: an unresolvable reference throws instead.
+        return Objects.requireNonNull(resolve(value, source, false));
+    }
+
+
+    /**
+     * Resolves a candidate location leniently: a candidate whose references cannot all be satisfied
+     * is skipped rather than failing the launch. Used for {@code [bootstrap] user-config} only,
+     * where a candidate naming a platform's variable ({@code ${env:APPDATA}}) is expected to be
+     * unset on every other platform.
+     *
+     * <p>
+     * "Cannot be satisfied" means a reference that is unset <em>or empty</em> and has no usable
+     * default. A reference with a default that resolves is satisfied:
+     * {@code ${env:XDG_CONFIG_HOME:-${sys:user.home}/.config}} with the variable unset yields the
+     * default. Syntax errors (an unterminated reference, an empty name) still throw — a typo in a
+     * bundled candidate must fail loudly on every platform, not be skipped silently everywhere.
+     *
+     * @param value
+     *            the raw candidate value
+     * @param source
+     *            the config file, for error messages
+     * @return the resolved candidate, or empty when a reference cannot be satisfied
+     * @throws BootstrapException
+     *             on a syntax error in the value
+     */
+    Optional<String> resolveCandidate(String value, Path source)
+    {
+        return Optional.ofNullable(resolve(value, source, true));
+    }
+
+
+    /**
+     * The resolution loop. In lenient mode an unsatisfiable reference makes the whole value
+     * {@code null}; in strict mode it throws, so strict mode never returns {@code null}. Lenient
+     * mode still scans the rest of the value, so a syntax error AFTER an unset reference fails on
+     * every platform rather than only where that reference happens to be set.
+     */
+    private @Nullable String resolve(String value, Path source, boolean lenient)
+    {
+        boolean unsatisfied = false;
         StringBuilder out = new StringBuilder(value.length());
         int i = 0;
         int n = value.length();
@@ -96,7 +140,15 @@ public final class VariableResolver
                     throw new BootstrapException(
                             source + ": unterminated ${...} in value: " + value);
                 }
-                out.append(resolveToken(value.substring(i + 2, close), source, value));
+                String token = resolveToken(value.substring(i + 2, close), source, value, lenient);
+                if (token == null)
+                {
+                    unsatisfied = true;
+                }
+                else
+                {
+                    out.append(token);
+                }
                 i = close + 1;
             }
             else
@@ -105,7 +157,7 @@ public final class VariableResolver
                 i++;
             }
         }
-        return out.toString();
+        return unsatisfied ? null : out.toString();
     }
 
 
@@ -144,7 +196,8 @@ public final class VariableResolver
     }
 
 
-    private String resolveToken(String token, Path source, String wholeValue)
+    private @Nullable String resolveToken(String token, Path source, String wholeValue,
+            boolean lenient)
     {
         // Split on the ':-' BEFORE resolving anything. Both halves may themselves contain ${...}
         // (e.g. ${env:X:-${bootstrap.dir}}) and each is resolved on its own, which buys two
@@ -163,7 +216,11 @@ public final class VariableResolver
             specText = token.substring(0, dd);
             defaultText = token.substring(dd + DEFAULT_SEPARATOR.length());
         }
-        String spec = resolve(specText, source);
+        String spec = resolve(specText, source, lenient);
+        if (spec == null)
+        {
+            return null;
+        }
 
         String resolved;
         if (spec.startsWith(ENV_PREFIX))
@@ -185,7 +242,11 @@ public final class VariableResolver
         {
             if (defaultText != null)
             {
-                return resolve(defaultText, source);
+                return resolve(defaultText, source, lenient);
+            }
+            if (lenient)
+            {
+                return null;
             }
             if (resolved == null)
             {

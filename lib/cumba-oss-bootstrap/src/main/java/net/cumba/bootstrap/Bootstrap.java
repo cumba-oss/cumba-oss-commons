@@ -1,12 +1,7 @@
 package net.cumba.bootstrap;
 
 import java.awt.GraphicsEnvironment;
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
-import java.nio.charset.MalformedInputException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.ProtectionDomain;
 import java.util.List;
@@ -116,8 +111,8 @@ public final class Bootstrap
     static String errorDialogText(String message)
     {
         return "The application could not be started:\n\n" + message
-                + "\n\nThe launcher's configuration is a .conf file, normally the one beside the"
-                + " launcher jar (or the one given by -Dbootstrap.config).";
+                + "\n\nThe launcher reads its configuration from the .conf file beside it and, if"
+                + " present, from your user configuration file.";
     }
 
 
@@ -207,33 +202,9 @@ public final class Bootstrap
         throws Exception
     {
         Path configPath = ConfigLocator.locate(protectionDomain, sysLookup);
-        List<String> lines = readConfig(configPath);
+        List<String> lines = ConfigFiles.read(configPath, "bootstrap config",
+                "override with -D" + ConfigLocator.CONFIG_OVERRIDE_PROPERTY + "=<path>");
         BootstrapConfig config = ConfigParser.parse(lines, configPath);
         Launcher.launch(config, args, protectionDomain);
-    }
-
-
-    private static List<String> readConfig(Path configPath)
-    {
-        try
-        {
-            return Files.readAllLines(configPath, StandardCharsets.UTF_8);
-        }
-        catch (NoSuchFileException e)
-        {
-            throw new BootstrapException("bootstrap config not found: " + configPath
-                    + " (override with -D" + ConfigLocator.CONFIG_OVERRIDE_PROPERTY + "=<path>)",
-                    e);
-        }
-        catch (MalformedInputException e)
-        {
-            throw new BootstrapException("bootstrap config " + configPath + " is not UTF-8 text"
-                    + " (save it as UTF-8; a byte-order mark is fine)", e);
-        }
-        catch (IOException e)
-        {
-            throw new BootstrapException(
-                    "cannot read bootstrap config " + configPath + ": " + e.getMessage(), e);
-        }
     }
 }
