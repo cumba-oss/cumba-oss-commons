@@ -69,9 +69,9 @@ class ConfigLocatorTest
     @Test
     void derivesSiblingConfFromJar() throws MalformedURLException
     {
-        Path located = ConfigLocator.locate(domainAt("file:/opt/app/net.cumba.bootstrap.jar"),
+        Path located = ConfigLocator.locate(domainAt("file:/opt/app/my.launcher.jar"),
                 ConfigLocatorTest::noProps);
-        assertEquals(Path.of("/opt/app/net.cumba.bootstrap.conf"), located);
+        assertEquals(Path.of("/opt/app/my.launcher.conf"), located);
     }
 
 

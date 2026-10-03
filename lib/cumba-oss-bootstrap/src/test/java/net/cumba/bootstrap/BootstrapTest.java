@@ -37,7 +37,7 @@ class BootstrapTest
         Path testClasses = Path
                 .of(TestMain.class.getProtectionDomain().getCodeSource().getLocation().toURI());
         out = tmp.resolve("out.txt");
-        conf = tmp.resolve("cumba-oss-bootstrap.conf");
+        conf = tmp.resolve("app.conf");
         Files.write(conf,
                 List.of("[bootstrap]", "main-class = net.cumba.bootstrap.itmain.TestMain",
                         "[properties]", "launcher.test.out = " + out, "foo = baz", "[classpath]",
