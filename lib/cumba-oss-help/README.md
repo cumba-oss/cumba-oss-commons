@@ -6,9 +6,11 @@ Cross-cutting utility helpers used by every other Cumba OSS module:
 `URIHelper` (URI manipulation — fragment replacement, file-name
 extraction), `StringInterner` (a sharded, weak-reference `String`
 canonicaliser with `String.intern()` semantics, but without the JVM's
-single globally synchronised native table) and `GenericListView` (an
+single globally synchronised native table), `GenericListView` (an
 unmodifiable, zero-copy `List` view whose elements are computed on
-access from an `IntFunction`). The most foundational module in the
+access from an `IntFunction`) and `SecureTempFiles` (temp files and
+directories restricted to the current user on POSIX filesystems; the
+platform default elsewhere). The most foundational module in the
 project.
 
 ## Maven coordinates
