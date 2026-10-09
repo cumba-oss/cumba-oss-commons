@@ -27,6 +27,7 @@ import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
+import net.cumba.bootstrap.instance.InstanceGate;
 import net.cumba.bootstrap.itmain.TestMain;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,10 +71,13 @@ class LauncherTest
         System.clearProperty(Launcher.CLASSPATH_ERROR_MODE_PROPERTY);
         for (String key : List.of("corej.rules.dir", "cumba.lib.dir", "launcher.test.home",
                 UserConfig.OVERRIDE_PROPERTY, UserConfig.APPLIED_PROPERTY,
-                UserConfig.CANDIDATES_PROPERTY))
+                UserConfig.CANDIDATES_PROPERTY, Launcher.SINGLE_INSTANCE_PROPERTY,
+                InstanceGate.DIR_PROPERTY, InstanceGate.LOCKED_PROPERTY,
+                InstanceGate.OUTCOME_PROPERTY))
         {
             System.clearProperty(key);
         }
+        Launcher.setGate(null);
     }
 
 
@@ -685,5 +689,141 @@ class LauncherTest
         assertEquals("bootstrap.user.config", Launcher.USER_CONFIG_OVERRIDE_PROPERTY);
         assertEquals("bootstrap.user.config.applied", Launcher.USER_CONFIG_APPLIED_PROPERTY);
         assertEquals("bootstrap.user.config.candidates", Launcher.USER_CONFIG_CANDIDATES_PROPERTY);
+    }
+
+    // ---- the single-instance gate ---------------------------------------------------------
+
+    /** A gate that records its calls and answers a fixed outcome. */
+    private static final class RecordingGate implements Launcher.Gate
+    {
+
+        final List<Path> scopes = new java.util.ArrayList<>();
+
+        final List<List<String>> args = new java.util.ArrayList<>();
+
+        private final InstanceGate.Outcome outcome;
+
+        RecordingGate(InstanceGate.Kind aKind, String aReason)
+        {
+            outcome = new InstanceGate.Outcome(aKind, aReason, Path.of("unused"));
+        }
+
+
+        @Override
+        public InstanceGate.Outcome enter(Path aScope, String[] aArgs)
+        {
+            scopes.add(aScope);
+            args.add(List.of(aArgs));
+            return outcome;
+        }
+    }
+
+    private BootstrapConfig gatedConfig(String aScope)
+    {
+        return new BootstrapConfig(confPath, Optional.of(TARGET), ClassLoaderMode.PARENT_FIRST,
+                List.of(Map.entry("launcher.test.out", out.toString())),
+                List.of(testClasses.toString()), List.of(), Set.of(), Optional.of(aScope));
+    }
+
+
+    @Test
+    void withoutTheKeyTheGateIsNeverTouchedAndNothingIsPublished() throws Exception
+    {
+        RecordingGate gate = new RecordingGate(InstanceGate.Kind.PRIMARY, "");
+        Launcher.setGate(gate);
+        Launcher.launch(targetConfig(ClassLoaderMode.PARENT_FIRST), new String[]
+        {
+                "a.csv"
+        }, pd());
+        assertEquals(List.of(), gate.scopes, "no key: the gate is not entered");
+        assertNull(System.getProperty(InstanceGate.OUTCOME_PROPERTY), "nothing published");
+        assertEquals("args=a.csv", Files.readAllLines(out).get(0), "the application ran");
+    }
+
+
+    @Test
+    void theScopeIsResolvedAndThePrimaryContinuesToTheApplication() throws Exception
+    {
+        System.setProperty("launcher.test.home", tmp.toString());
+        RecordingGate gate = new RecordingGate(InstanceGate.Kind.PRIMARY, "");
+        Launcher.setGate(gate);
+        Launcher.launch(gatedConfig("${sys:launcher.test.home}/.settings"), new String[]
+        {
+                "a.csv", "--new-window"
+        }, pd());
+        assertEquals(List.of(tmp.resolve(".settings")), gate.scopes);
+        assertEquals(List.of(List.of("a.csv", "--new-window")), gate.args,
+                "the arguments reach the gate as they are");
+        assertEquals("PRIMARY", System.getProperty(InstanceGate.OUTCOME_PROPERTY));
+        assertEquals("args=a.csv|--new-window", Files.readAllLines(out).get(0),
+                "and the application too, with the arguments untouched");
+    }
+
+
+    @Test
+    void aHandOffReturnsWithoutStartingTheApplication() throws Exception
+    {
+        RecordingGate gate = new RecordingGate(InstanceGate.Kind.HANDED_OFF, "");
+        Launcher.setGate(gate);
+        ClassLoader before = Thread.currentThread().getContextClassLoader();
+        Launcher.launch(gatedConfig(tmp.toString()), new String[]
+        {
+                "a.csv"
+        }, pd());
+        assertEquals(1, gate.scopes.size());
+        assertFalse(Files.exists(out), "the target main never ran");
+        assertSame(before, Thread.currentThread().getContextClassLoader(),
+                "no class loader was created");
+        assertNull(System.getProperty(InstanceGate.OUTCOME_PROPERTY),
+                "a hand-off publishes nothing: this JVM exits");
+    }
+
+
+    @Test
+    void anExtraStartPublishesItsOutcomeAndRuns() throws Exception
+    {
+        RecordingGate gate = new RecordingGate(InstanceGate.Kind.EXTRA, "timeout");
+        Launcher.setGate(gate);
+        Launcher.launch(gatedConfig(tmp.toString()), new String[0], pd());
+        assertEquals("EXTRA:timeout", System.getProperty(InstanceGate.OUTCOME_PROPERTY));
+        assertNull(System.getProperty(InstanceGate.LOCKED_PROPERTY));
+        assertTrue(Files.exists(out), "the application ran as a separate instance");
+    }
+
+
+    @Test
+    void theSwitchAndTheArgumentTurnTheGateOff() throws Exception
+    {
+        RecordingGate gate = new RecordingGate(InstanceGate.Kind.PRIMARY, "");
+        Launcher.setGate(gate);
+        // the property, as the user overlay sets it (applied before the gate)
+        BootstrapConfig off = new BootstrapConfig(confPath, Optional.of(TARGET),
+                ClassLoaderMode.PARENT_FIRST,
+                List.of(Map.entry("launcher.test.out", out.toString()),
+                        Map.entry(Launcher.SINGLE_INSTANCE_PROPERTY, "false")),
+                List.of(testClasses.toString()), List.of(), Set.of(), Optional.of(tmp.toString()));
+        Launcher.launch(off, new String[0], pd());
+        assertEquals(List.of(), gate.scopes, "switched off: the gate is not entered");
+        assertEquals("OFF", System.getProperty(InstanceGate.OUTCOME_PROPERTY),
+                "but the application learns a gate ran and must not lock itself");
+        assertFalse(Files.exists(tmp.resolve("instance")), "no file was created");
+
+        System.clearProperty(InstanceGate.OUTCOME_PROPERTY);
+        System.clearProperty(Launcher.SINGLE_INSTANCE_PROPERTY);
+        Files.delete(out);
+        Launcher.launch(gatedConfig(tmp.toString()), new String[]
+        {
+                "--new-instance", "a.csv"
+        }, pd());
+        assertEquals(List.of(), gate.scopes);
+        assertEquals("OFF", System.getProperty(InstanceGate.OUTCOME_PROPERTY));
+        assertEquals("args=--new-instance|a.csv", Files.readAllLines(out).get(0),
+                "the argument is never stripped");
+    }
+
+
+    private static ProtectionDomain pd()
+    {
+        return LauncherTest.class.getProtectionDomain();
     }
 }

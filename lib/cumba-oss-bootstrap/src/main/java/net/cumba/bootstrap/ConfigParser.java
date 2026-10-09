@@ -25,6 +25,12 @@ import java.util.Set;
  * {@code key = value}).
  * <li>In {@code [bootstrap]} a repeated key overwrites, except {@code user-config} (each occurrence
  * adds a candidate, in order) and {@code reserved} (each occurrence adds its comma-separated keys).
+ * <li>{@code [bootstrap] single-instance =
+ *
+<dir>
+ * } opts the distribution into the single-instance gate
+ * ({@link net.cumba.bootstrap.instance.InstanceGate}); the value is the instance scope and may not
+ * be empty.
  * </ul>
  *
  * <p>
@@ -62,6 +68,7 @@ public final class ConfigParser
         List<String> userConfigCandidates = new ArrayList<>();
         Set<String> reservedKeys = new LinkedHashSet<>();
         String mainClass = null;
+        String singleInstanceDir = null;
         ClassLoaderMode mode = ClassLoaderMode.PARENT_FIRST;
         String section = null;
 
@@ -91,6 +98,7 @@ public final class ConfigParser
                 case "user-config" -> userConfigCandidates.add(requireValue(kv, source, i));
                 case "reserved" -> reservedKeys
                         .addAll(keyList(requireValue(kv, source, i), source, i));
+                case "single-instance" -> singleInstanceDir = requireValue(kv, source, i);
                 default -> throw BootstrapException.at(source, i,
                         "unknown [bootstrap] key '" + kv.getKey() + "'");
                 }
@@ -101,7 +109,8 @@ public final class ConfigParser
             }
         }
         return new BootstrapConfig(source, Optional.ofNullable(mainClass), mode, properties,
-                classpath, userConfigCandidates, reservedKeys);
+                classpath, userConfigCandidates, reservedKeys,
+                Optional.ofNullable(singleInstanceDir));
     }
 
 

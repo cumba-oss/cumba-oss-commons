@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
+import net.cumba.bootstrap.instance.InstanceGate;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -27,6 +28,14 @@ import org.jspecify.annotations.Nullable;
  * {@code bootstrap.dir}, applies system properties, assembles and de-duplicates the classpath,
  * resolves the main class, applies the optional user overlay ({@link UserConfig}), builds an
  * isolated classloader, then reflectively invokes the target {@code main}.
+ *
+ * <p>
+ * A config naming {@code [bootstrap] single-instance = <scope>} passes the <em>single-instance
+ * gate</em> ({@link InstanceGate}) between the user overlay and the class loader - the class path
+ * is fixed but nothing of the application is loaded yet, and the on/off switch
+ * ({@value #SINGLE_INSTANCE_PROPERTY}, which the user overlay may set) is in effect. A start whose
+ * files were handed off to the running primary returns from {@link #launch} without starting the
+ * application. Without the key the gate is not touched and nothing is published.
  *
  * <p>
  * {@link #launch} mutates global JVM state (system properties and the thread context classloader)
@@ -65,8 +74,43 @@ public final class Launcher
     /** Manifest header consulted for the target main class when the config omits it. */
     public static final String MANIFEST_MAIN_CLASS_ATTRIBUTE = "Bootstrap-Main-Class";
 
+    /**
+     * System property switching the single-instance gate off ({@code false}); read after the user
+     * overlay, so the user's {@code databrowser.conf} may set it. Only meaningful in a config that
+     * names {@code [bootstrap] single-instance}.
+     */
+    public static final String SINGLE_INSTANCE_PROPERTY = "cumba.single.instance";
+
+    /**
+     * Command-line argument that starts a separate instance (never stripped from the arguments).
+     */
+    public static final String NEW_INSTANCE_ARG = "--new-instance";
+
+    /** The gate, replaceable by a test; {@code null} means the real {@link InstanceGate}. */
+    private static @Nullable Gate gateOverride;
+
+    /** The single-instance gate as the launcher calls it. */
+    @FunctionalInterface
+    interface Gate
+    {
+
+        InstanceGate.Outcome enter(Path aScope, String[] aArgs);
+    }
+
     private Launcher()
     {
+    }
+
+
+    /**
+     * Replaces the gate (tests); {@code null} restores the real one.
+     *
+     * @param aGate
+     *            the gate
+     */
+    static void setGate(@Nullable Gate aGate)
+    {
+        gateOverride = aGate;
     }
 
 
@@ -121,9 +165,45 @@ public final class Launcher
             System.clearProperty(UserConfig.CANDIDATES_PROPERTY);
         }
 
+        if (config.singleInstanceDir().isPresent() && !passGate(config, args, resolver))
+        {
+            // handed off: the primary has the files, this JVM exits without the application
+            return;
+        }
+
         ClassLoader loader = createClassLoader(classpath, config.classLoaderMode());
         Thread.currentThread().setContextClassLoader(loader);
         invokeMain(mainClassName, loader, args);
+    }
+
+
+    /**
+     * The single-instance gate (the config names {@code single-instance}). Off (the property is
+     * {@code false}, or {@value #NEW_INSTANCE_ARG} is given) publishes {@code OFF} and touches no
+     * file, lock or socket.
+     *
+     * @return {@code false} when the start was handed off and the launcher must return
+     */
+    private static boolean passGate(BootstrapConfig config, String[] args,
+            VariableResolver resolver)
+    {
+        if (!Boolean.parseBoolean(System.getProperty(SINGLE_INSTANCE_PROPERTY, "true"))
+                || List.of(args).contains(NEW_INSTANCE_ARG))
+        {
+            InstanceGate.publishOff();
+            return true;
+        }
+        Path scope = Path
+                .of(resolver.resolve(config.singleInstanceDir().orElseThrow(), config.source()));
+        Gate gate = gateOverride;
+        InstanceGate.Outcome outcome = gate != null ? gate.enter(scope, args)
+                : InstanceGate.enter(scope, args, Path.of(System.getProperty("user.dir", ".")));
+        if (outcome.kind() == InstanceGate.Kind.HANDED_OFF)
+        {
+            return false;
+        }
+        outcome.publish();
+        return true;
     }
 
 

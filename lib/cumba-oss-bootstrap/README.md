@@ -70,6 +70,7 @@ ${app.home}/classes
 | `classloader` | `parent-first` (default) or `child-first` (see *Classloader*).    |
 | `user-config` | A candidate location of the user overlay. **Repeatable**, in order. |
 | `reserved`    | Comma-separated keys the user overlay may not set. Repeatable, merged; an empty value or a key with whitespace in it (a missing comma) is an error. |
+| `single-instance` | Opts the distribution into the single-instance gate (see *Single instance*); the value is the instance scope, a directory. An empty value is an error. Absent: the gate does not exist for this distribution. |
 
 If `main-class` is omitted, the launcher falls back to a
 `Bootstrap-Main-Class` header in its own jar manifest. A `main-class`
@@ -273,6 +274,110 @@ dialog (when a display is available). It is a system property, not a config
 key, because the failure to report is often that the config itself cannot be
 read or parsed. Without it — the default, and what console and CLI launchers
 use — only stderr is written. The exit status is `2` either way.
+
+## Single instance
+
+A distribution whose config names `[bootstrap] single-instance = <scope>` runs
+**one instance per user and per scope** (the scope is the user's settings
+directory, e.g. `${sys:user.home}/.cumbaDataBrowser`), regardless of the
+installed version: a second start hands its files to the running primary and
+exits. The gate runs between the user overlay and the class loader - the class
+path is fixed, nothing of the application is loaded yet, and the switch below
+may come from the user's overlay. Without the key nothing of this exists: no
+file, no lock, no socket class and no foreign-function class is touched (the
+data browser's build pins that in a forked JVM with `-Xlog:class+load`), which
+is what keeps `cumba-corej-cli` and `cumba-corej-rest` unaffected.
+
+**Switch.** `[properties] cumba.single.instance = ${sys:cumba.single.instance:-true}`
+in the bundled config; the user overlay may set it to `false`. The argument
+`--new-instance` starts a separate instance for one start (it is passed on to
+the application untouched). Either publishes `bootstrap.instance.outcome=OFF`.
+
+**Lock.** `<scope>/instance/instance.lock`, a `FileChannel.tryLock` on byte 0,
+held in a static field for the JVM's life and released by the operating system
+on any exit, a crash included. The lock is the truth; the endpoint file beside
+it is only a pointer. `instance/` is created owner-only (`rwx------` where the
+file system has POSIX modes; Windows inherits the profile's ACL) and the mode is
+re-applied on every start. A file system that cannot lock, or a refused
+directory, means a separate instance (`EXTRA:no-lock-support`, `EXTRA:dir-check`).
+
+**Primary.** The lock is free: the previous run's `endpoint` is deleted at once
+(a failed delete - Windows, a file held open - is logged and ignored; the
+application replaces the file atomically), `bootstrap.instance.dir` (the
+instance directory), `bootstrap.instance.locked=true` and
+`bootstrap.instance.outcome=PRIMARY` are published, and the launcher continues
+to the application, which listens. The application writes the endpoint:
+`socket=<path>`, `token=<64 hex>`, `version=1` - one fresh socket name
+`s-<16 hex>` per start - or `listener=none` + `version=1` when it cannot listen.
+
+**Client.** The lock is held: for up to **10 s** (every 100 ms) the endpoint is
+re-read (missing = the primary is still starting; `listener=none` = separate
+instance at once), the socket's directory is verified when it is not the
+instance directory, and a connection is attempted. On a missing endpoint or a
+refused socket the attempt also tries the lock: free means the old primary
+died before it listened, and this start is the primary. After the hello back
+the client closes its own splash screen, grants the primary the foreground
+(Windows: `AllowSetForegroundWindow` through the foreign function API; the
+`BOOL` and `GetLastError` are logged), sends its paths - every argument not
+starting with `--` that names an existing file or directory, resolved against
+the client's working directory; none = "come to the front" - and reads replies:
+`BUSY STARTING` heartbeats are waited for up to **60 s** in total, `BUSY QUEUED`
+(a modal dialog in the primary: the user's time) without a cap, each reply
+within **5 s** of the last; `ACCEPTED` = handed off, the JVM exits 0 without
+starting the application; `CLOSING` (the primary is exiting) or EOF (it died)
+= wait up to **30 s** for the lock, then become the primary. A different token
+appearing in the endpoint during that wait means a third start took the lock
+first: the client hands off to it instead, at most **3** rounds. Any expiry or
+refusal falls through to a normal start without lock or listener
+(`bootstrap.instance.outcome=EXTRA:<reason>`): worst case two windows, never a
+lost file. The reasons: `no-lock-support`, `dir-check`, `timeout`, `start-cap`,
+`denied-version`, `denied-limit`, `no-listener`, `rounds`, `protocol`,
+`too-many-paths`, `path-too-long`, `interrupted`.
+
+**Wire protocol v1** over the Unix domain socket: each frame is a 4-byte
+big-endian length followed by UTF-8 text, lines split on `\n`. The length is
+checked against the cap (8 MiB + 64 KiB: 256 paths of 32 KiB) *before* a buffer
+is allocated.
+
+| from | frame | meaning |
+|---|---|---|
+| client | `CUMBA-INSTANCE 1\n<token>` | hello: protocol version + the endpoint's token |
+| server | `CUMBA-INSTANCE 1\n<pid>` | hello back: the version it speaks, its pid (for the foreground grant) |
+| server | `DENIED\n<reason>` then close | instead of the hello back: `token` (compared in constant time; the client re-reads the endpoint and retries inside its window), `version` (the client goes EXTRA), `limit` (too many concurrent connections; EXTRA) |
+| client | `OPEN\n<n>\n<path 1>\n...<path n>` | absolute paths, `n <= 256`, each at most 32 KiB |
+| server | `BUSY\n<state>` (0..n times) then `ACCEPTED` or `CLOSING` | `STARTING` (the primary is building its window) or `QUEUED` (a modal dialog); a missing or unknown state counts as `STARTING` |
+
+The constants are spelled in this jar and in the application's server half -
+the halves share a protocol, not types - and the distribution's build pins the
+two spellings equal.
+
+**Security.** The threat model is other users on the same host. The socket and
+the endpoint live in the owner-only `instance/`; the hello carries a 256-bit
+random token per primary start, read from the owner-only endpoint file; where
+the application falls back to a socket directory under a shared location
+(Linux: `$XDG_RUNTIME_DIR`, else `java.io.tmpdir`) the client verifies, before
+connecting, that the directory is not a symbolic link, is owned by the current
+user and is exactly `rwx------`. The server only *opens files as the user
+would*; nothing is executed. Every blocking connect, write and read is guarded
+by a close watchdog (a Unix-domain `SocketChannel` has no `SO_TIMEOUT`): a daemon
+thread closes the channel when the deadline passes.
+
+**Published for the application.** `bootstrap.instance.outcome` on every gated
+start (`PRIMARY`, `EXTRA:<reason>`, `OFF`), `bootstrap.instance.dir` and
+`bootstrap.instance.locked` on PRIMARY only. All three are reserved: the user
+overlay cannot set them. An application started without the launcher (an IDE)
+sees none of them and may take the lock itself; one that sees an outcome must
+never open the lock file - closing a second channel on it could release the
+launcher's lock.
+
+**Testing.** Every seam (clock, lock, directory checks, platform, foreground
+grant, watchdog scheduler) is injected, so every branch and every time-out runs
+on a Linux build host on a fake clock; the real lock is tested against a forked
+holder process, the client against a stand-in v1 server over a real socket, and
+five forked launchers at once against one scope prove one primary and four
+hand-offs. The one class outside the module's coverage and mutation floors is
+the branch-free Windows binding `WindowsForegroundGrant` (the pom states the
+policy).
 
 ## Known limitations
 

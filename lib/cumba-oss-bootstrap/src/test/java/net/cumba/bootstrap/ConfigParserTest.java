@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -302,5 +303,24 @@ class ConfigParserTest
     {
         assertThrows(BootstrapException.class,
                 () -> ConfigParser.parseOverlay(List.of("[properties]", "no equals"), SRC));
+    }
+
+
+    @Test
+    void singleInstanceIsTheGatesOptIn()
+    {
+        assertEquals(Optional.empty(), parse("[bootstrap]", "main-class = x.Y").singleInstanceDir(),
+                "absent: no gate");
+        assertEquals(Optional.of("${sys:user.home}/.cumbaDataBrowser"),
+                parse("[bootstrap]", "single-instance = ${sys:user.home}/.cumbaDataBrowser")
+                        .singleInstanceDir());
+        assertEquals(Optional.of("b"),
+                parse("[bootstrap]", "single-instance = a", "single-instance = b")
+                        .singleInstanceDir(),
+                "a repeated key overwrites");
+        BootstrapException ex = assertThrows(BootstrapException.class,
+                () -> parse("[bootstrap]", "single-instance ="));
+        assertEquals("test.conf:2: empty value for [bootstrap] key 'single-instance'",
+                ex.getMessage());
     }
 }

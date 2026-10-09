@@ -30,10 +30,15 @@ import java.util.Set;
  * @param reservedKeys
  *            keys declared by {@code [bootstrap] reserved} that the user overlay may not set, in
  *            addition to the launcher's own
+ * @param singleInstanceDir
+ *            the {@code [bootstrap] single-instance} value (pre-interpolation): the instance scope
+ *            of the single-instance gate; empty when the config declares none, which keeps the gate
+ *            out of the start entirely
  */
 public record BootstrapConfig(Path source, Optional<String> mainClass,
         ClassLoaderMode classLoaderMode, List<Map.Entry<String, String>> properties,
-        List<String> classpathEntries, List<String> userConfigCandidates, Set<String> reservedKeys)
+        List<String> classpathEntries, List<String> userConfigCandidates, Set<String> reservedKeys,
+        Optional<String> singleInstanceDir)
 {
 
     /**
@@ -67,5 +72,32 @@ public record BootstrapConfig(Path source, Optional<String> mainClass,
             List<Map.Entry<String, String>> properties, List<String> classpathEntries)
     {
         this(source, mainClass, classLoaderMode, properties, classpathEntries, List.of(), Set.of());
+    }
+
+
+    /**
+     * A config without a single-instance gate.
+     *
+     * @param source
+     *            the file this config was read from
+     * @param mainClass
+     *            the target {@code main} class, if declared
+     * @param classLoaderMode
+     *            delegation strategy for the assembled classpath
+     * @param properties
+     *            ordered {@code [properties]} key/value pairs
+     * @param classpathEntries
+     *            ordered {@code [classpath]} entries
+     * @param userConfigCandidates
+     *            ordered {@code [bootstrap] user-config} candidates
+     * @param reservedKeys
+     *            keys declared by {@code [bootstrap] reserved}
+     */
+    public BootstrapConfig(Path source, Optional<String> mainClass, ClassLoaderMode classLoaderMode,
+            List<Map.Entry<String, String>> properties, List<String> classpathEntries,
+            List<String> userConfigCandidates, Set<String> reservedKeys)
+    {
+        this(source, mainClass, classLoaderMode, properties, classpathEntries, userConfigCandidates,
+                reservedKeys, Optional.empty());
     }
 }

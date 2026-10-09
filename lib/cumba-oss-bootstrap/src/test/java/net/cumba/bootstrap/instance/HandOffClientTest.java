@@ -1,0 +1,710 @@
+package net.cumba.bootstrap.instance;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import net.cumba.bootstrap.instance.InstanceGate.Deps;
+import net.cumba.bootstrap.instance.InstanceGate.Kind;
+import net.cumba.bootstrap.instance.InstanceGate.Outcome;
+import net.cumba.bootstrap.itmain.StandInServer;
+import net.cumba.bootstrap.itmain.StandInServer.Script;
+import net.cumba.bootstrap.itmain.StandInServer.Script.End;
+import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/**
+ * The hand-off client against a stand-in v1 server over a real Unix domain socket, every decision
+ * on the fake clock, the lock on a scripted probe, the directory checks on a fake, the watchdog on
+ * a manual scheduler: no real sleep anywhere.
+ */
+// the stand-in servers are closed in tearDown or by their try-with-resources
+@SuppressWarnings("PMD.CloseResource")
+class HandOffClientTest
+{
+
+    private static final String BUSY_STARTING = WireCodec.BUSY + "\n" + WireCodec.STATE_STARTING;
+
+    private static final String BUSY_QUEUED = WireCodec.BUSY + "\n" + WireCodec.STATE_QUEUED;
+
+    /** A lock probe answering a script of statuses, the last one repeated. */
+    static final class ScriptedLock implements LockProbe
+    {
+
+        private final List<Status> script;
+
+        final List<Path> files = new ArrayList<>();
+
+        ScriptedLock(Status... aScript)
+        {
+            script = List.of(aScript);
+        }
+
+
+        @Override
+        public Status tryLock(Path aLockFile)
+        {
+            files.add(aLockFile);
+            int i = Math.min(files.size() - 1, script.size() - 1);
+            return script.get(i);
+        }
+    }
+
+
+    /** A directory check answering a fixed reason (null = fine). */
+    static final class FakeDirCheck implements DirCheck
+    {
+
+        @Nullable
+        String ensureReason;
+
+        @Nullable
+        String strictReason;
+
+        final List<Path> ensured = new ArrayList<>();
+
+        final List<Path> verified = new ArrayList<>();
+
+        @Override
+        public @Nullable String ensureOwnerOnly(Path aDir)
+        {
+            ensured.add(aDir);
+            return ensureReason;
+        }
+
+
+        @Override
+        public @Nullable String verifyStrictOwnerOnly(Path aDir)
+        {
+            verified.add(aDir);
+            return strictReason;
+        }
+    }
+
+    @TempDir
+    Path tmp;
+
+    private Path scope;
+
+    private Path instanceDir;
+
+    private FakeClock clock;
+
+    private ManualScheduler scheduler;
+
+    private FakeDirCheck dirCheck;
+
+    private final List<Long> granted = new ArrayList<>();
+
+    private final AtomicInteger splashClosed = new AtomicInteger();
+
+    private @Nullable StandInServer server;
+
+    private Path file1;
+
+    private Path file2;
+
+    @BeforeEach
+    void setUp() throws IOException
+    {
+        scope = tmp.resolve("settings");
+        instanceDir = scope.resolve(Endpoint.DIR_NAME);
+        Files.createDirectories(instanceDir);
+        clock = new FakeClock();
+        scheduler = new ManualScheduler();
+        dirCheck = new FakeDirCheck();
+        file1 = Files.writeString(tmp.resolve("a.csv"), "x");
+        file2 = Files.writeString(tmp.resolve("b.csv"), "y");
+    }
+
+
+    @AfterEach
+    void tearDown() throws IOException
+    {
+        if (server != null)
+        {
+            server.close();
+        }
+    }
+
+
+    private Deps deps(LockProbe aLock)
+    {
+        return deps(aLock, aPid ->
+        {
+            granted.add(aPid);
+            return new ForegroundGrant.Result(1, 0);
+        });
+    }
+
+
+    private Deps deps(LockProbe aLock, ForegroundGrant aGrant)
+    {
+        return new Deps(clock, aLock, dirCheck, Platform.LINUX, aGrant,
+                new CloseWatchdog(scheduler), splashClosed::incrementAndGet);
+    }
+
+
+    private StandInServer serve(Function<Integer, Script> aScripts) throws IOException
+    {
+        server = new StandInServer(instanceDir, instanceDir, aScripts);
+        return server;
+    }
+
+
+    private StandInServer serve(Script aScript) throws IOException
+    {
+        return serve(n -> aScript);
+    }
+
+
+    private Outcome enter(LockProbe aLock, String... aArgs)
+    {
+        return InstanceGate.enter(scope, aArgs, tmp, deps(aLock));
+    }
+
+
+    private Outcome enterHeld(String... aArgs)
+    {
+        return enter(new ScriptedLock(LockProbe.Status.HELD), aArgs);
+    }
+
+
+    private static void assertExtra(Outcome aOutcome, String aReason)
+    {
+        assertEquals(Kind.EXTRA, aOutcome.kind(), aOutcome.toString());
+        assertEquals(aReason, aOutcome.reason());
+        assertEquals("EXTRA:" + aReason, aOutcome.token());
+    }
+
+    // ---- the happy paths ------------------------------------------------------------------
+
+
+    @Test
+    void acceptedIsAHandOff() throws Exception
+    {
+        StandInServer s = serve(Script.accepted());
+        Outcome o = enterHeld(file1.toString(), "b.csv", "--new-instance", "missing.csv");
+        assertEquals(Kind.HANDED_OFF, o.kind());
+        assertEquals(List.of(List.of(file1.toString(), file2.toString())), s.opens(),
+                "existing files only, resolved against the working directory, options skipped");
+        assertEquals(List.of(s.token()), s.hellos());
+        assertEquals(1, splashClosed.get(), "the splash closes on the hello back");
+        assertEquals(List.of(ProcessHandle.current().pid()), granted,
+                "the foreground grant goes to the server's pid");
+        assertEquals(0, scheduler.pending(), "every watchdog guard was closed");
+        assertEquals(0, clock.sleeps(), "no retry was needed");
+    }
+
+
+    @Test
+    void startingHeartbeatsAreWaitedForUnderTheCap() throws Exception
+    {
+        clock.stepPerReading(20_000);
+        serve(Script.accepted(BUSY_STARTING, BUSY_STARTING));
+        assertEquals(Kind.HANDED_OFF, enterHeld(file1.toString()).kind(),
+                "two heartbeats at 20 s each stay under the 60 s cap");
+    }
+
+
+    @Test
+    void startingPastTheCapIsExtra() throws Exception
+    {
+        clock.stepPerReading(30_000);
+        serve(Script.ending(End.HANG, BUSY_STARTING, BUSY_STARTING, BUSY_STARTING));
+        assertExtra(enterHeld(file1.toString()), "start-cap");
+    }
+
+
+    @Test
+    void aBusyWithoutOrWithAnUnknownStateCountsAsStarting() throws Exception
+    {
+        clock.stepPerReading(30_000);
+        serve(Script.ending(End.HANG, WireCodec.BUSY, WireCodec.BUSY + "\nWHATEVER",
+                WireCodec.BUSY));
+        assertExtra(enterHeld(file1.toString()), "start-cap");
+    }
+
+
+    @Test
+    void queuedHeartbeatsHaveNoCap() throws Exception
+    {
+        clock.stepPerReading(30_000);
+        String[] replies = new String[12];
+        Arrays.fill(replies, BUSY_QUEUED);
+        serve(Script.accepted(replies));
+        assertEquals(Kind.HANDED_OFF, enterHeld(file1.toString()).kind(),
+                "6 minutes of a modal dialog: the user's time, still handed off");
+    }
+
+
+    @Test
+    void queuedThenStartingIsNotCappedEither() throws Exception
+    {
+        // once the primary reached ACCEPTING it cannot go back to STARTING; a later
+        // STARTING-shaped heartbeat is not capped any more
+        clock.stepPerReading(30_000);
+        serve(Script.accepted(BUSY_QUEUED, BUSY_STARTING, BUSY_STARTING, BUSY_STARTING));
+        assertEquals(Kind.HANDED_OFF, enterHeld(file1.toString()).kind());
+    }
+
+
+    @Test
+    void anEmptyArgumentListStillHandsOff() throws Exception
+    {
+        StandInServer s = serve(Script.accepted());
+        assertEquals(Kind.HANDED_OFF, enterHeld().kind());
+        assertEquals(List.of(List.of()), s.opens(), "'come to the front'");
+    }
+
+    // ---- CLOSING, EOF, the lock wait ----------------------------------------------------------
+
+
+    @Test
+    void closingThenAFreeLockIsPrimary() throws Exception
+    {
+        serve(Script.ending(End.CLOSING));
+        ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD, LockProbe.Status.HELD,
+                LockProbe.Status.HELD, LockProbe.Status.ACQUIRED);
+        Outcome o = enter(lock, file1.toString());
+        assertEquals(Kind.PRIMARY, o.kind());
+        assertEquals(instanceDir, o.instanceDir());
+        assertFalse(Files.exists(instanceDir.resolve(Endpoint.FILE_NAME)),
+                "the stale endpoint is deleted right after the lock was taken");
+        assertEquals(4, lock.files.size(), "gate probe + 3 in the wait");
+        assertTrue(lock.files.stream()
+                .allMatch(f -> f.equals(instanceDir.resolve(Endpoint.LOCK_FILE_NAME))));
+    }
+
+
+    @Test
+    void eofIsTreatedLikeClosing() throws Exception
+    {
+        serve(Script.ending(End.EOF));
+        ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD, LockProbe.Status.HELD,
+                LockProbe.Status.ACQUIRED);
+        assertEquals(Kind.PRIMARY, enter(lock, file1.toString()).kind());
+    }
+
+
+    @Test
+    void theLockWaitExpiresIntoExtra() throws Exception
+    {
+        serve(Script.ending(End.CLOSING));
+        Outcome o = enterHeld(file1.toString());
+        assertExtra(o, "timeout");
+        assertTrue(clock.sleeps() >= HandOffClient.LOCK_WAIT_MILLIS / HandOffClient.RETRY_MILLIS,
+                "slept through the whole lock wait: " + clock.sleeps());
+    }
+
+
+    /** Rewrites the endpoint to name {@code aServer} (what a new primary does after its lock). */
+    private void pointEndpointAt(StandInServer aServer)
+    {
+        try
+        {
+            StandInServer.writeEndpoint(instanceDir, aServer.socketPath(), aServer.token());
+        }
+        catch (IOException e)
+        {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+
+    @Test
+    void aNewTokenDuringTheWaitMeansAThirdStartTookTheLock() throws Exception
+    {
+        // a: the old primary, exiting; b: the third start, now primary, its socket in a fallback
+        // directory (so the strict check runs on it too)
+        try (StandInServer a = new StandInServer(instanceDir, instanceDir,
+                n -> Script.ending(End.CLOSING));
+                StandInServer b = new StandInServer(instanceDir, instanceDir.resolve("b"),
+                        n -> Script.accepted()))
+        {
+            pointEndpointAt(a);
+            AtomicInteger probes = new AtomicInteger();
+            LockProbe lock = f ->
+            {
+                if (probes.incrementAndGet() == 3)
+                {
+                    pointEndpointAt(b);
+                }
+                return LockProbe.Status.HELD;
+            };
+            Outcome o = enter(lock, file1.toString());
+            assertEquals(Kind.HANDED_OFF, o.kind(), o.toString());
+            assertEquals(List.of(List.of(file1.toString())), a.opens(), "round 1 went to a");
+            assertEquals(List.of(List.of(file1.toString())), b.opens(), "round 2 went to b");
+            assertEquals(List.of(instanceDir.resolve("b")), dirCheck.verified,
+                    "b's socket directory is not the instance directory: verified strictly");
+            assertEquals(2, splashClosed.get(), "a hello back per round");
+        }
+    }
+
+
+    @Test
+    void atMostThreeRoundsThenExtra() throws Exception
+    {
+        // every primary says CLOSING, and during every wait a new one takes the lock
+        Function<Integer, Script> closing = n -> Script.ending(End.CLOSING);
+        try (StandInServer s0 = new StandInServer(instanceDir, instanceDir, closing);
+                StandInServer s1 = new StandInServer(instanceDir, instanceDir, closing);
+                StandInServer s2 = new StandInServer(instanceDir, instanceDir, closing);
+                StandInServer s3 = new StandInServer(instanceDir, instanceDir, closing))
+        {
+            List<StandInServer> servers = List.of(s0, s1, s2, s3);
+            pointEndpointAt(s0);
+            AtomicInteger probes = new AtomicInteger();
+            LockProbe rotating = f ->
+            {
+                int n = probes.incrementAndGet();
+                if (n % 2 == 0 && n / 2 < servers.size())
+                {
+                    pointEndpointAt(servers.get(n / 2));
+                }
+                return LockProbe.Status.HELD;
+            };
+            assertExtra(enter(rotating, file1.toString()), "rounds");
+            for (int i = 0; i < 3; i++)
+            {
+                assertEquals(1, servers.get(i).opens().size(), "round " + (i + 1));
+            }
+            assertEquals(0, s3.opens().size(), "no fourth round");
+        }
+    }
+
+
+    @Test
+    void noLockSupportDuringTheWaitIsExtra() throws Exception
+    {
+        serve(Script.ending(End.CLOSING));
+        ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD, LockProbe.Status.UNSUPPORTED);
+        assertExtra(enter(lock, file1.toString()), "no-lock-support");
+    }
+
+
+    @Test
+    void listenerNoneDuringTheWaitIsExtra() throws Exception
+    {
+        serve(Script.ending(End.CLOSING));
+        AtomicInteger p = new AtomicInteger();
+        LockProbe lock = f ->
+        {
+            if (p.incrementAndGet() == 2)
+            {
+                try
+                {
+                    Files.writeString(instanceDir.resolve(Endpoint.FILE_NAME),
+                            "listener=none\nversion=1\n", StandardCharsets.UTF_8);
+                }
+                catch (IOException e)
+                {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            }
+            return LockProbe.Status.HELD;
+        };
+        assertExtra(enter(lock, file1.toString()), "no-listener");
+    }
+
+    // ---- the connect window ---------------------------------------------------------------
+
+
+    @Test
+    void noEndpointAndTheLockHeldExpiresIntoExtra()
+    {
+        Outcome o = enterHeld(file1.toString());
+        assertExtra(o, "timeout");
+        assertTrue(
+                clock.sleeps() >= HandOffClient.CONNECT_WINDOW_MILLIS / HandOffClient.RETRY_MILLIS,
+                "the whole window: " + clock.sleeps());
+    }
+
+
+    @Test
+    void noEndpointButTheLockTurnsFreeIsPrimary() throws Exception
+    {
+        Files.writeString(instanceDir.resolve(Endpoint.FILE_NAME), "garbage",
+                StandardCharsets.UTF_8);
+        ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD, LockProbe.Status.HELD,
+                LockProbe.Status.HELD, LockProbe.Status.ACQUIRED);
+        Outcome o = enter(lock, file1.toString());
+        assertEquals(Kind.PRIMARY, o.kind(), "the old primary died before it listened");
+        assertFalse(Files.exists(instanceDir.resolve(Endpoint.FILE_NAME)));
+        assertEquals(2, clock.sleeps(), "the gate's probe, then two held probes in the window");
+    }
+
+
+    @Test
+    void aRefusedSocketAndTheLockTurningFreeIsPrimary() throws Exception
+    {
+        StandInServer.writeEndpoint(instanceDir, instanceDir.resolve("s-gone"), "t");
+        ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD, LockProbe.Status.HELD,
+                LockProbe.Status.ACQUIRED);
+        assertEquals(Kind.PRIMARY, enter(lock, file1.toString()).kind());
+        assertEquals(0, splashClosed.get(), "no hello back, the splash stays");
+    }
+
+
+    @Test
+    void aRefusedSocketWithTheLockHeldExpiresIntoExtra() throws Exception
+    {
+        StandInServer.writeEndpoint(instanceDir, instanceDir.resolve("s-gone"), "t");
+        assertExtra(enterHeld(file1.toString()), "timeout");
+    }
+
+
+    @Test
+    void noLockSupportInTheWindowIsExtra()
+    {
+        ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD, LockProbe.Status.UNSUPPORTED);
+        assertExtra(enter(lock, file1.toString()), "no-lock-support");
+    }
+
+
+    @Test
+    void aStaleTokenIsDeniedAndTheReReadSucceeds() throws Exception
+    {
+        StandInServer s = serve(Script.accepted());
+        // a stale endpoint: the live socket, the previous run's token
+        StandInServer.writeEndpoint(instanceDir, s.socketPath(), "stale-token");
+        // the new primary writes its endpoint "a moment later" - while the client pauses
+        // between attempts (a live server answered, so no lock probe happens on a denial)
+        clock.onSleep(() -> pointEndpointAt(s));
+        Outcome o = enterHeld(file1.toString());
+        assertEquals(Kind.HANDED_OFF, o.kind(), o.toString());
+        assertEquals(List.of("stale-token", s.token()), s.hellos());
+        assertEquals(1, splashClosed.get(), "closed once, on the accepted hello");
+        assertEquals(1, clock.sleeps(), "retried once after the denial");
+    }
+
+
+    @Test
+    void deniedVersionAndDeniedLimitAreExtraAtOnce() throws Exception
+    {
+        serve(Script.denied(WireCodec.DENIED_VERSION));
+        assertExtra(enterHeld(file1.toString()), "denied-version");
+        server.close();
+        serve(Script.denied(WireCodec.DENIED_LIMIT));
+        assertExtra(enterHeld(file1.toString()), "denied-limit");
+        server.close();
+        serve(Script.denied("something-new"));
+        assertExtra(enterHeld(file1.toString()), "denied-something-new");
+        assertEquals(0, splashClosed.get(), "never a hello back");
+        assertEquals(0, clock.sleeps(), "no retry");
+    }
+
+
+    @Test
+    void listenerNoneIsExtraWithoutAConnect() throws Exception
+    {
+        Files.writeString(instanceDir.resolve(Endpoint.FILE_NAME), "listener=none\nversion=1\n",
+                StandardCharsets.UTF_8);
+        assertExtra(enterHeld(file1.toString()), "no-listener");
+        assertEquals(0, clock.sleeps());
+        assertEquals(0, scheduler.delays().size(), "no connect attempt");
+    }
+
+
+    @Test
+    void aSocketOutsideTheInstanceDirectoryIsVerifiedStrictly() throws Exception
+    {
+        Path run = instanceDir.resolve("fallback");
+        StandInServer s = new StandInServer(instanceDir, run, n -> Script.accepted());
+        server = s;
+        dirCheck.strictReason = run + " is owned by somebody";
+        assertExtra(enterHeld(file1.toString()), "dir-check");
+        assertEquals(List.of(run), dirCheck.verified);
+        assertEquals(0, s.hellos().size(), "refused before connecting");
+        dirCheck.strictReason = null;
+        assertEquals(Kind.HANDED_OFF, enterHeld(file1.toString()).kind());
+        assertEquals(List.of(run, run), dirCheck.verified);
+    }
+
+
+    @Test
+    void aSocketInTheInstanceDirectoryIsNotVerifiedAgain() throws Exception
+    {
+        serve(Script.accepted());
+        assertEquals(Kind.HANDED_OFF, enterHeld(file1.toString()).kind());
+        assertEquals(List.of(), dirCheck.verified);
+        assertEquals(List.of(instanceDir), dirCheck.ensured, "the instance directory itself");
+    }
+
+
+    @Test
+    void anUnexpectedHelloOrReplyIsExtra() throws Exception
+    {
+        serve(Script.hello("HTTP/1.1 200 OK\nnope"));
+        assertExtra(enterHeld(file1.toString()), "protocol");
+        server.close();
+        serve(Script.hello(WireCodec.PROTOCOL + " 1"));
+        assertExtra(enterHeld(file1.toString()), "protocol");
+        server.close();
+        serve(Script.accepted("WHAT\nIS THIS"));
+        assertExtra(enterHeld(file1.toString()), "protocol");
+    }
+
+
+    @Test
+    void aPidThatIsNotANumberIsLoggedAndTheHandOffContinues() throws Exception
+    {
+        serve(new Script(WireCodec.PROTOCOL + " 1\nnot-a-pid", List.of(), End.ACCEPTED));
+        assertEquals(Kind.HANDED_OFF, enterHeld(file1.toString()).kind());
+        assertEquals(List.of(), granted);
+    }
+
+
+    @Test
+    void aFailingGrantIsLoggedAndTheHandOffContinues() throws Exception
+    {
+        serve(Script.accepted());
+        ForegroundGrant failing = aPid ->
+        {
+            throw new UnsatisfiedLinkError("no user32 here");
+        };
+        Outcome o = InstanceGate.enter(scope, new String[]
+        {
+                file1.toString()
+        }, tmp, deps(new ScriptedLock(LockProbe.Status.HELD), failing));
+        assertEquals(Kind.HANDED_OFF, o.kind());
+        ForegroundGrant refused = aPid -> new ForegroundGrant.Result(0, 5);
+        server.close();
+        serve(Script.accepted());
+        assertEquals(Kind.HANDED_OFF, InstanceGate.enter(scope, new String[]
+        {
+                file1.toString()
+        }, tmp, deps(new ScriptedLock(LockProbe.Status.HELD), refused)).kind());
+    }
+
+
+    @Test
+    void aSplashCloserThatThrowsDoesNotEndTheHandOff() throws Exception
+    {
+        serve(Script.accepted());
+        Deps d = new Deps(clock, new ScriptedLock(LockProbe.Status.HELD), dirCheck, Platform.LINUX,
+                ForegroundGrant.NONE, new CloseWatchdog(scheduler), () ->
+                {
+                    throw new IllegalStateException("headless after all");
+                });
+        assertEquals(Kind.HANDED_OFF, InstanceGate.enter(scope, new String[]
+        {
+                file1.toString()
+        }, tmp, d).kind());
+    }
+
+    // ---- the watchdog ---------------------------------------------------------------------
+
+
+    @Test
+    void aServerThatNeverAnswersIsTimedOutByTheWatchdog() throws Exception
+    {
+        StandInServer s = serve(Script.ending(End.HANG));
+        CompletableFuture<Outcome> client = CompletableFuture
+                .supplyAsync(() -> enterHeld(file1.toString()));
+        s.awaitHanging();
+        waitForPending(5);
+        assertEquals(List.of(HandOffClient.REPLY_GAP_MILLIS),
+                List.of(scheduler.delays().get(scheduler.delays().size() - 1)),
+                "the read is guarded by the reply gap");
+        assertEquals(1, scheduler.fireAll(), "the watchdog closes the channel");
+        assertExtra(client.get(10, TimeUnit.SECONDS), "timeout");
+    }
+
+
+    @Test
+    void anOpenWriteThatNeverCompletesIsTimedOutByTheWatchdog() throws Exception
+    {
+        // an OPEN far above the socket's send buffer against a server that never reads: the
+        // write blocks. 256 paths of ~3 KiB (a real file system caps a path near 4 KiB).
+        StandInServer s = serve(Script.ending(End.NO_READ));
+        Path deep = tmp.resolve("big");
+        for (int i = 0; i < 15; i++)
+        {
+            deep = deep.resolve("d".repeat(200));
+        }
+        Files.createDirectories(deep);
+        List<String> args = new ArrayList<>();
+        for (int i = 0; i < WireCodec.MAX_PATHS; i++)
+        {
+            Path f = deep.resolve("f" + i);
+            Files.writeString(f, "");
+            args.add(f.toString());
+        }
+        assertTrue(WireCodec.open(args).length() > 700_000, "well above a socket buffer");
+        CompletableFuture<Outcome> client = CompletableFuture
+                .supplyAsync(() -> enterHeld(args.toArray(new String[0])));
+        s.awaitHanging();
+        waitForPending(4);
+        assertEquals(1, scheduler.fireAll(), "the watchdog closes the channel mid-write");
+        assertExtra(client.get(10, TimeUnit.SECONDS), "timeout");
+    }
+
+
+    /**
+     * Waits (real time, bounded) until the client armed its {@code aArmed}-th guard and is blocked
+     * under it. The guards are armed in order: connect, hello write, hello read, OPEN write, then
+     * one per reply read.
+     */
+    private void waitForPending(int aArmed) throws InterruptedException
+    {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while ((scheduler.delays().size() < aArmed || scheduler.pending() == 0)
+                && System.nanoTime() < deadline)
+        {
+            Thread.sleep(5);
+        }
+        assertEquals(aArmed, scheduler.delays().size(), "guards armed so far");
+        assertEquals(1, scheduler.pending(), "the blocked call is guarded");
+    }
+
+
+    @Test
+    void interruptedWhileWaitingIsExtra()
+    {
+        Thread.currentThread().interrupt();
+        try
+        {
+            Deps d = new Deps(new Clock()
+            {
+
+                @Override
+                public long nanoTime()
+                {
+                    return clock.nanoTime();
+                }
+
+
+                @Override
+                public void sleep(long aMillis) throws InterruptedException
+                {
+                    throw new InterruptedException();
+                }
+            }, new ScriptedLock(LockProbe.Status.HELD), dirCheck, Platform.LINUX,
+                    ForegroundGrant.NONE, new CloseWatchdog(scheduler), () ->
+                    {
+                    });
+            assertExtra(InstanceGate.enter(scope, new String[0], tmp, d), "interrupted");
+            assertTrue(Thread.currentThread().isInterrupted(), "the flag is restored");
+        }
+        finally
+        {
+            assertTrue(Thread.interrupted());
+        }
+    }
+}

@@ -268,4 +268,19 @@ class UserConfigTest
         }
         assertFalse(UserConfig.isReserved(cfg, "openai.api.model"));
     }
+
+
+    @Test
+    void thePublishedInstanceOutcomeIsReserved()
+    {
+        BootstrapConfig cfg = new BootstrapConfig(Path.of("x.conf"), Optional.empty(),
+                ClassLoaderMode.PARENT_FIRST, List.of(), List.of());
+        for (String key : List.of("bootstrap.instance.dir", "bootstrap.instance.locked",
+                "bootstrap.instance.outcome"))
+        {
+            assertTrue(UserConfig.isReserved(cfg, key), key);
+        }
+        // the on/off switch itself is the user's to set
+        assertFalse(UserConfig.isReserved(cfg, Launcher.SINGLE_INSTANCE_PROPERTY));
+    }
 }

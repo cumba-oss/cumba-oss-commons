@@ -45,13 +45,17 @@ final class UserConfig
     static final String CANDIDATES_PROPERTY = Launcher.USER_CONFIG_CANDIDATES_PROPERTY;
 
     /**
-     * Keys a user overlay may never set: the launcher's own inputs and outputs. The bundled config
-     * adds to them with {@code [bootstrap] reserved}.
+     * Keys a user overlay may never set: the launcher's own inputs and outputs, the published
+     * single-instance outcome included (the application trusts it: a user value could make it open
+     * the lock file beside the launcher's lock). The bundled config adds to them with
+     * {@code [bootstrap] reserved}. The {@code bootstrap.instance.*} names are spelled here, not
+     * referenced, so this class never touches the instance package.
      */
     static final Set<String> BUILT_IN_RESERVED_KEYS = Set.of(Launcher.BOOTSTRAP_DIR_PROPERTY,
             ConfigLocator.CONFIG_OVERRIDE_PROPERTY, OVERRIDE_PROPERTY, APPLIED_PROPERTY,
             CANDIDATES_PROPERTY, Bootstrap.ERROR_DIALOG_PROPERTY,
-            Launcher.CLASSPATH_ERROR_MODE_PROPERTY);
+            Launcher.CLASSPATH_ERROR_MODE_PROPERTY, "bootstrap.instance.dir",
+            "bootstrap.instance.locked", "bootstrap.instance.outcome");
 
     /**
      * Where the launcher looked, and what it found.

@@ -69,6 +69,24 @@
         <pitest.mutation.target>95</pitest.mutation.target>
         <pitest.coverage.target>91</pitest.coverage.target>
         <pitest.test.strength.target>96</pitest.test.strength.target>
+
+        <!--
+            POLICY (PLAN-single-instance-folder-open SI11, owner-approved 2026-10-09): the ONE
+            class excluded from the floors above is the Windows foreign-function binding
+            WindowsForegroundGrant - a user32 downcall that a Linux build host can never
+            execute. It holds the lookup, the handle and the call, no branch. Everything that
+            decides anything (platform selection, the lock, the directory checks, every
+            time-out) is injected and runs on Linux CI, so nothing else is excluded.
+        -->
+        <jacoco.coverage.excludes>**/net/cumba/bootstrap/instance/WindowsForegroundGrant.class</jacoco.coverage.excludes>
+        <pitest.excludedClasses>net.cumba.bootstrap.instance.WindowsForegroundGrant</pitest.excludedClasses>
+        <!--
+            Fully qualified (a simple name matches nothing). The two tests fork JVMs: five
+            launchers per run (the multi-process hand-off) and a -Xlog:class+load run (the
+            no-key class-load proof). Neither covers a production line in the test JVM, and a
+            fork per mutant would only time out; surefire runs them, pitest does not.
+        -->
+        <pitest.excludedTestClasses>net.cumba.bootstrap.instance.MultiProcessHandOffTest,net.cumba.bootstrap.NoKeyClassLoadTest</pitest.excludedTestClasses>
     </properties>
 
     <dependencies>
@@ -138,6 +156,25 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                        Tests never reach the real home: the single-instance tests create
+                        instance/ directories, lock files and sockets under the scope they are
+                        given, and nothing may land in ~/.cumbaDataBrowser. The redirect is
+                        appended to the parent's variables (combine.children="append"; checked
+                        with help:effective-pom) and repeated in the Pitest profile below,
+                        whose minions inherit nothing from here. TestHomeRedirectTest is the
+                        guard; the real home is passed as realUserHome from the Maven JVM.
+                    -->
+                    <systemPropertyVariables combine.children="append">
+                        <user.home>${project.build.directory}/test-home</user.home>
+                        <realUserHome>${user.home}</realUserHome>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>${plugin.maven-jar-plugin.version}</version>
                 <configuration>
@@ -150,6 +187,28 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <!-- Activated with the root pom's profile of the same id (-P Pitest). -->
+            <id>Pitest</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-maven</artifactId>
+                        <configuration>
+                            <!-- The home redirect for the minions (see surefire above). -->
+                            <jvmArgs combine.children="append">
+                                <jvmArg>-Duser.home=${project.build.directory}/test-home</jvmArg>
+                                <jvmArg>-DrealUserHome=${user.home}</jvmArg>
+                            </jvmArgs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
     <reporting>
     </reporting>
