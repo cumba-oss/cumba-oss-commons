@@ -14,7 +14,7 @@ This is the **base layer** — it depends on no other Cumba OSS repository.
 | [`cumba-oss-help`](lib/cumba-oss-help/README.md) | `net.cumba.datatable.help` | Cross-cutting helpers: `CDT` string/collection utilities, `AsyncSupport`, `URIHelper`, `StringInterner`. |
 | [`cumba-oss-web-api`](lib/cumba-oss-web-api/README.md) | `net.cumba.web.api` | HTTP/REST client plumbing with response caching, used by the CDISC Library client. |
 | [`cumba-oss-cdisc-library`](lib/cumba-oss-cdisc-library/README.md) | `net.cumba.cdisc.library` | Client and model for the CDISC Library API (SDTM, ADaM, CDASH, controlled terminology). Depends on `cumba-oss-help` and `cumba-oss-web-api`. |
-| [`cumba-oss-bootstrap`](lib/cumba-oss-bootstrap/README.md) | `net.cumba.bootstrap` | Standalone launcher: child-first classloading, a `.conf` file resolved next to the jar, variable expansion. Nothing else here depends on it. |
+| [`cumba-oss-bootstrap`](lib/cumba-oss-bootstrap/README.md) | `net.cumba.bootstrap` | Standalone launcher: child-first classloading, a `.conf` file resolved next to the jar, variable expansion, and an opt-in single-instance gate (`[bootstrap] single-instance`: a second start hands its files to the running one). Nothing else here depends on it. |
 
 Each module has its own `README.md` with coordinates and dependency detail.
 

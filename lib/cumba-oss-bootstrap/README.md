@@ -347,7 +347,7 @@ third start took the lock first: the client hands off to it instead, at most
 lock or listener (`bootstrap.instance.outcome=EXTRA:<reason>`): worst case two
 windows, never a lost file. The reasons: `no-lock-support`, `dir-check`,
 `no-endpoint`, `timeout`, `start-cap`, `denied-version`, `denied-limit`,
-`denied-request` (any `denied-<reason>` the primary sends), `no-listener`,
+`denied-request`, `denied-failed` (any `denied-<reason>` the primary sends), `no-listener`,
 `rounds`, `protocol`, `too-many-paths`, `path-too-long`, `path-newline`,
 `interrupted`, `error`.
 
@@ -369,7 +369,7 @@ is allocated.
 | server | `DENIED\n<reason>` then close | instead of the hello back: `token` (compared in constant time; the client re-reads the endpoint and retries inside its window), `version` (the client goes EXTRA), `limit` (too many concurrent connections; EXTRA) |
 | client | `OPEN\n<n>\n<path 1>\n...<path n>` | absolute paths, `n <= 256`, each at most 32 KiB, none holding `\n` or `\r` |
 | server | `BUSY\n<state>` (0..n times) then `ACCEPTED` or `CLOSING` | `STARTING` (the primary is building its window) or `QUEUED` (a modal dialog); a missing or unknown state counts as `STARTING` |
-| server | `DENIED\n<reason>` then close | instead of the replies above, for an `OPEN` the server refuses: `request` (malformed, over the limits); the client goes EXTRA (`denied-<reason>`) |
+| server | `DENIED\n<reason>` then close | instead of the replies above (after `BUSY` heartbeats too), for an `OPEN` the server refuses: `request` (malformed, over the limits) or `failed` (the primary could not take the files over - its open path threw); the client goes EXTRA (`denied-<reason>`) at once, without a lock wait |
 
 The constants are spelled in this jar and in the application's server half -
 the halves share a protocol, not types - and the distribution's build pins the
