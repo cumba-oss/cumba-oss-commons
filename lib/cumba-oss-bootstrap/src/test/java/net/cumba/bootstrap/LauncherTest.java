@@ -822,6 +822,37 @@ class LauncherTest
     }
 
 
+    @Test
+    void aGateThatFailsUnexpectedlyFallsThroughToASeparateInstance() throws Exception
+    {
+        // review LOW 2: the gate is an optimisation - whatever it throws, the start still runs
+        // (worst case two windows, never a lost file), e.g. a Windows without AF_UNIX
+        Launcher.setGate((aScope, aArgs) ->
+        {
+            throw new UnsupportedOperationException("Unix domain sockets not supported");
+        });
+        Launcher.launch(gatedConfig(tmp.toString()), new String[]
+        {
+                "a.csv"
+        }, pd());
+        assertEquals("EXTRA:error", System.getProperty(InstanceGate.OUTCOME_PROPERTY));
+        assertNull(System.getProperty(InstanceGate.LOCKED_PROPERTY));
+        assertEquals("args=a.csv", Files.readAllLines(out).get(0),
+                "the application ran as a separate instance");
+    }
+
+
+    @Test
+    void aScopeThatIsNoPathFallsThroughToASeparateInstance() throws Exception
+    {
+        // review LOW 2: an InvalidPathException from the resolved scope (the real gate, no
+        // override) - the start runs, nothing was locked
+        Launcher.launch(gatedConfig("bad\0scope"), new String[0], pd());
+        assertEquals("EXTRA:error", System.getProperty(InstanceGate.OUTCOME_PROPERTY));
+        assertTrue(Files.exists(out), "the application ran");
+    }
+
+
     private static ProtectionDomain pd()
     {
         return LauncherTest.class.getProtectionDomain();

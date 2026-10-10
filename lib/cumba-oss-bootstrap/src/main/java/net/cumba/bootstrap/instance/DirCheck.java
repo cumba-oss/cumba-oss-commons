@@ -29,6 +29,14 @@ import org.jspecify.annotations.Nullable;
  * set at creation (no window for another user); this half only verifies it before connecting.
  *
  * <p>
+ * The current user is taken from the file system - the owner of the instance directory, which
+ * {@link #ensureOwnerOnly} created or re-verified - never from {@code user.name}: that is a
+ * {@code -D} away from any value, and a directory-service name need not round-trip through the
+ * lookup service. Sound because a client only gets this far when it could open the lock file inside
+ * the instance directory: one owned by another user is either not {@code rwx------} (then
+ * {@link #ensureOwnerOnly} fails to re-apply the mode, which only the owner may) or not enterable.
+ *
+ * <p>
  * Where the file system has no POSIX view (Windows, and a non-POSIX file system elsewhere) the mode
  * cannot be read or set: the settings directory then inherits the profile's ACL, which keeps other
  * users out, and the strict checks fall back to existence, directory and no-symlink.
@@ -58,10 +66,13 @@ public interface DirCheck
      *
      * @param aDir
      *            the directory
+     * @param aOwnDir
+     *            a directory of this process's user - the instance directory, after
+     *            {@link #ensureOwnerOnly}: its owner is who {@code aDir} must belong to
      * @return {@code null} when it is in order, else the reason it is not
      */
     @Nullable
-    String verifyStrictOwnerOnly(Path aDir);
+    String verifyStrictOwnerOnly(Path aDir, Path aOwnDir);
 
     /** The real implementation over NIO. */
     final class Default implements DirCheck
@@ -101,7 +112,7 @@ public interface DirCheck
 
 
         @Override
-        public @Nullable String verifyStrictOwnerOnly(Path aDir)
+        public @Nullable String verifyStrictOwnerOnly(Path aDir, Path aOwnDir)
         {
             try
             {
@@ -125,11 +136,11 @@ public interface DirCheck
                     return aDir + " is not owner-only ("
                             + PosixFilePermissions.toString(attributes.permissions()) + ")";
                 }
-                UserPrincipal me = aDir.getFileSystem().getUserPrincipalLookupService()
-                        .lookupPrincipalByName(System.getProperty("user.name", ""));
+                UserPrincipal me = Files.getOwner(aOwnDir, LinkOption.NOFOLLOW_LINKS);
                 if (!me.equals(attributes.owner()))
                 {
-                    return aDir + " is owned by " + attributes.owner().getName();
+                    return aDir + " is owned by " + attributes.owner().getName() + ", not by "
+                            + me.getName();
                 }
                 return null;
             }

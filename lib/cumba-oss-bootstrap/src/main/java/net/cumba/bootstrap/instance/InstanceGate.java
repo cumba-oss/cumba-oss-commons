@@ -60,6 +60,9 @@ public final class InstanceGate
     /** The {@value #OUTCOME_PROPERTY} prefix of a separate instance; the reason follows. */
     public static final String OUTCOME_EXTRA_PREFIX = "EXTRA:";
 
+    /** The EXTRA reason of a gate that failed unexpectedly ({@link #publishError}). */
+    public static final String REASON_ERROR = "error";
+
     /** How a gated start went. */
     public enum Kind
     {
@@ -166,6 +169,23 @@ public final class InstanceGate
 
 
     /**
+     * Publishes {@value #OUTCOME_PROPERTY}{@code =EXTRA:error} for a gate that failed unexpectedly
+     * (a Windows without Unix domain sockets, a scope that is no path, ...): the gate is an
+     * optimisation, so the start runs as a separate instance - worst case two windows, never a lost
+     * file.
+     *
+     * @param aFailure
+     *            what went wrong (logged)
+     */
+    public static void publishError(RuntimeException aFailure)
+    {
+        LOGGER.log(Level.WARNING,
+                "Single instance: the gate failed; starting as a separate" + " instance", aFailure);
+        System.setProperty(OUTCOME_PROPERTY, OUTCOME_EXTRA_PREFIX + REASON_ERROR);
+    }
+
+
+    /**
      * Enters the gate with the real seams.
      *
      * @param aScope
@@ -207,6 +227,28 @@ public final class InstanceGate
                     + "); starting as a separate instance");
             return new Outcome(Kind.EXTRA, "dir-check", instanceDir);
         }
+        Path lockFile = instanceDir.resolve(Endpoint.LOCK_FILE_NAME);
+        return switch (aDeps.lockProbe().tryLock(lockFile))
+        {
+        case ACQUIRED ->
+        {
+            deleteStaleEndpoint(instanceDir.resolve(Endpoint.FILE_NAME));
+            yield new Outcome(Kind.PRIMARY, "", instanceDir);
+        }
+        case UNSUPPORTED -> new Outcome(Kind.EXTRA, "no-lock-support", instanceDir);
+        case HELD -> handOff(instanceDir, aArgs, aUserDir, aDeps);
+        };
+    }
+
+
+    /**
+     * The lock is held: the paths go to the primary. The protocol's limits are checked here, after
+     * the lock - they bound a hand-off, never a primary, which opens whatever it was given (checked
+     * before the lock, an over-long list made a start EXTRA without a lock, and the next start a
+     * second primary).
+     */
+    private static Outcome handOff(Path aInstanceDir, String[] aArgs, Path aUserDir, Deps aDeps)
+    {
         List<String> paths;
         try
         {
@@ -217,19 +259,9 @@ public final class InstanceGate
             String reason = String.valueOf(e.getMessage());
             LOGGER.log(Level.INFO,
                     "Single instance: " + reason + "; starting as a separate instance");
-            return new Outcome(Kind.EXTRA, reason, instanceDir);
+            return new Outcome(Kind.EXTRA, reason, aInstanceDir);
         }
-        Path lockFile = instanceDir.resolve(Endpoint.LOCK_FILE_NAME);
-        return switch (aDeps.lockProbe().tryLock(lockFile))
-        {
-        case ACQUIRED ->
-        {
-            deleteStaleEndpoint(instanceDir.resolve(Endpoint.FILE_NAME));
-            yield new Outcome(Kind.PRIMARY, "", instanceDir);
-        }
-        case UNSUPPORTED -> new Outcome(Kind.EXTRA, "no-lock-support", instanceDir);
-        case HELD -> new HandOffClient(instanceDir, aDeps).run(paths);
-        };
+        return new HandOffClient(aInstanceDir, aDeps).run(paths);
     }
 
 
@@ -243,7 +275,9 @@ public final class InstanceGate
      *            the working directory
      * @return the absolute paths, in order
      * @throws IllegalArgumentException
-     *             when the list exceeds the protocol's limits (a normal start opens them all)
+     *             when the list exceeds the protocol's limits, or a path holds a line break (the
+     *             frame splits on {@code \n} and strips a trailing {@code \r}, so the primary would
+     *             read other paths): a normal start opens them all
      */
     static List<String> pathsOf(String[] aArgs, Path aUserDir)
     {
@@ -275,6 +309,10 @@ public final class InstanceGate
                 continue;
             }
             String s = p.toString();
+            if (s.indexOf('\n') >= 0 || s.indexOf('\r') >= 0)
+            {
+                throw new IllegalArgumentException("path-newline");
+            }
             if (s.getBytes(StandardCharsets.UTF_8).length > WireCodec.MAX_PATH_BYTES)
             {
                 throw new IllegalArgumentException("path-too-long");

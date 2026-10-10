@@ -65,7 +65,52 @@ class DirCheckTest
         Path dir = tmp.resolve("run");
         Files.createDirectory(dir,
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
-        assertNull(DirCheck.DEFAULT.verifyStrictOwnerOnly(dir));
+        assertNull(DirCheck.DEFAULT.verifyStrictOwnerOnly(dir, tmp));
+    }
+
+
+    @Test
+    void strictTakesTheOwnerFromTheFileSystemNeverFromUserName() throws Exception
+    {
+        // review LOW 6: user.name is a -D away from any value and a directory-service name need
+        // not round-trip through the lookup service; the current user is the owner of a
+        // directory this process made
+        Path dir = tmp.resolve("run");
+        Files.createDirectory(dir,
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        String userName = System.getProperty("user.name");
+        System.setProperty("user.name", "no-such-user-" + System.nanoTime());
+        try
+        {
+            assertNull(DirCheck.DEFAULT.verifyStrictOwnerOnly(dir, tmp),
+                    "our own directory, whatever user.name says");
+        }
+        finally
+        {
+            System.setProperty("user.name", userName);
+        }
+        // the reference must be readable: without it nothing is accepted
+        String why = DirCheck.DEFAULT.verifyStrictOwnerOnly(dir, tmp.resolve("no-such-dir"));
+        assertNotNull(why);
+        assertTrue(why.contains("NoSuchFileException"), why);
+    }
+
+
+    @Test
+    void strictRefusesADirectoryOfAnotherOwnerThanTheReference() throws Exception
+    {
+        // the refusal a build host cannot plant (it would need another user's directory), seen
+        // from the other side: our directory against a reference owned by root
+        Path root = Path.of("/");
+        assumeTrue(!Files.getOwner(root).equals(Files.getOwner(tmp)),
+                "the build runs as root: no foreign owner to compare with");
+        Path dir = tmp.resolve("run");
+        Files.createDirectory(dir,
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        String why = DirCheck.DEFAULT.verifyStrictOwnerOnly(dir, root);
+        assertNotNull(why);
+        assertTrue(why.contains("is owned by " + Files.getOwner(dir).getName() + ", not by "
+                + Files.getOwner(root).getName()), why);
     }
 
 
@@ -75,7 +120,7 @@ class DirCheckTest
         Path open = tmp.resolve("open");
         Files.createDirectory(open,
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwxr-xr-x")));
-        String why = DirCheck.DEFAULT.verifyStrictOwnerOnly(open);
+        String why = DirCheck.DEFAULT.verifyStrictOwnerOnly(open, tmp);
         assertNotNull(why);
         assertTrue(why.contains("not owner-only"), why);
 
@@ -84,15 +129,15 @@ class DirCheckTest
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
         Path link = tmp.resolve("link");
         Files.createSymbolicLink(link, target);
-        String whyLink = DirCheck.DEFAULT.verifyStrictOwnerOnly(link);
+        String whyLink = DirCheck.DEFAULT.verifyStrictOwnerOnly(link, tmp);
         assertNotNull(whyLink);
         assertTrue(whyLink.contains("symbolic link"), whyLink);
 
-        assertTrue(DirCheck.DEFAULT.verifyStrictOwnerOnly(tmp.resolve("missing"))
+        assertTrue(DirCheck.DEFAULT.verifyStrictOwnerOnly(tmp.resolve("missing"), tmp)
                 .contains("not a directory"));
         Path file = tmp.resolve("file");
         Files.writeString(file, "x");
-        assertTrue(DirCheck.DEFAULT.verifyStrictOwnerOnly(file).contains("not a directory"));
+        assertTrue(DirCheck.DEFAULT.verifyStrictOwnerOnly(file, tmp).contains("not a directory"));
     }
 
 

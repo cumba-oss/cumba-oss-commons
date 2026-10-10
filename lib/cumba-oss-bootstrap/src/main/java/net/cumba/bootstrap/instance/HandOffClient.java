@@ -23,16 +23,19 @@ import org.jspecify.annotations.Nullable;
  * The loop, per round (at most {@link #MAX_ROUNDS}):
  * <ol>
  * <li><b>connect window</b> ({@link #CONNECT_WINDOW_MILLIS}): on every attempt the endpoint file is
- * re-read (missing = "primary starting"; {@code listener=none} = EXTRA at once); the socket's
- * directory is verified when it is not the instance directory; then connect and handshake. A
- * {@code DENIED token} (a stale endpoint) re-reads and retries; {@code DENIED version} /
+ * re-read (missing = "primary starting"; {@code listener=none} read twice in a row = EXTRA); the
+ * socket's directory is verified when it is not the instance directory; then connect and handshake.
+ * A {@code DENIED token} (a stale endpoint) re-reads and retries; {@code DENIED version} /
  * {@code DENIED limit} end in EXTRA. On a missing endpoint or a refused socket the attempt also
- * tries the lock: free means the old primary died before it listened - this start is PRIMARY.</li>
+ * tries the lock: free means the old primary died before it listened - this start is PRIMARY. While
+ * the lock is held and <em>no</em> endpoint exists the primary is alive and still starting (class
+ * loading, a virus scanner on a cold start), so that state waits up to {@link #START_WINDOW_MILLIS}
+ * instead.</li>
  * <li>after the hello back the client closes its own splash screen, grants the foreground to the
  * server's pid, sends {@code OPEN} and reads replies: {@code BUSY STARTING} counts against the
  * {@link #START_CAP_MILLIS}, {@code BUSY QUEUED} (a modal dialog, the user's time) against nothing
  * but the reply gap; {@code ACCEPTED} = handed off; {@code CLOSING} or EOF (the primary died) = the
- * lock wait.</li>
+ * lock wait; {@code DENIED <reason>} (the primary refused the {@code OPEN}) = EXTRA at once.</li>
  * <li><b>lock wait</b> ({@link #LOCK_WAIT_MILLIS}): try the lock; a different token in the endpoint
  * means a third start took the lock first - back to the connect window (round + 1).</li>
  * </ol>
@@ -44,8 +47,17 @@ public final class HandOffClient
 
     private static final System.Logger LOGGER = System.getLogger(HandOffClient.class.getName());
 
-    /** How long a client keeps trying to connect while the lock is held. */
+    /**
+     * How long a client keeps trying to connect while the lock is held and an endpoint exists that
+     * does not answer (a refused socket, a stale token).
+     */
     public static final long CONNECT_WINDOW_MILLIS = 10_000;
+
+    /**
+     * How long a client waits while the lock is held and no endpoint exists yet: the lock holder is
+     * alive (the OS releases the lock of a dead process), it has not listened yet - a cold start.
+     */
+    public static final long START_WINDOW_MILLIS = 30_000;
 
     /** The pause between attempts (and between lock probes). */
     public static final long RETRY_MILLIS = 100;
@@ -176,68 +188,96 @@ public final class HandOffClient
     private Result connectWindow(List<String> aPaths) throws InterruptedException
     {
         long start = deps.clock().nanoTime();
+        boolean noListenerBefore = false;
         while (true)
         {
             Optional<Endpoint> endpoint = Endpoint.read(endpointFile);
-            boolean probeLock = endpoint.isEmpty();
-            if (endpoint.isPresent())
+            boolean noListener = endpoint.isPresent() && endpoint.get().noListener();
+            if (noListener && noListenerBefore)
             {
-                Endpoint e = endpoint.get();
-                if (e.noListener())
+                return Result.extra("no-listener");
+            }
+            // a first listener=none may be the previous run's: a new primary deletes it right
+            // after its lock, so it is read once more after a pause (and the lock is tried)
+            noListenerBefore = noListener;
+            boolean probeLock = endpoint.isEmpty() || noListener;
+            if (endpoint.isPresent() && !noListener)
+            {
+                Result attempt = tryEndpoint(endpoint.get(), aPaths);
+                if (attempt.step() == Step.CONNECT_FAILED)
                 {
-                    return Result.extra("no-listener");
+                    probeLock = true;
                 }
-                lastToken = e.token().orElse(null);
-                Path socket = e.socket().orElseThrow();
-                Path socketDir = socket.toAbsolutePath().getParent();
-                if (socketDir != null && !socketDir.equals(instanceDir.toAbsolutePath()))
-                {
-                    String why = deps.dirCheck().verifyStrictOwnerOnly(socketDir);
-                    if (why != null)
-                    {
-                        LOGGER.log(Level.INFO, "Single instance: socket directory refused: " + why);
-                        return Result.extra("dir-check");
-                    }
-                }
-                Result attempt = attempt(socket, e.token().orElse(""), aPaths);
-                switch (attempt.step())
-                {
-                case CONNECT_FAILED -> probeLock = true;
-                case RETRY ->
-                {
-                    // a stale token: the endpoint is re-read on the next attempt
-                }
-                default ->
+                else if (attempt.step() != Step.RETRY)
                 {
                     return attempt;
                 }
-                }
             }
+            boolean starting = false;
             if (probeLock)
             {
-                switch (deps.lockProbe().tryLock(lockFile))
-                {
-                case ACQUIRED ->
+                LockProbe.Status lock = deps.lockProbe().tryLock(lockFile);
+                if (lock == LockProbe.Status.ACQUIRED)
                 {
                     InstanceGate.deleteStaleEndpoint(endpointFile);
                     return Result.of(Step.PRIMARY);
                 }
-                case UNSUPPORTED ->
+                if (lock == LockProbe.Status.UNSUPPORTED)
                 {
                     return Result.extra("no-lock-support");
                 }
-                default ->
-                {
-                    // still held: keep trying inside the window
-                }
-                }
+                // held, and nothing written yet: the primary lives and is still starting
+                starting = endpoint.isEmpty();
             }
-            if (elapsedMillis(start) >= CONNECT_WINDOW_MILLIS)
+            Result expired = expired(start, starting);
+            if (expired != null)
             {
-                return Result.extra("timeout");
+                return expired;
             }
             deps.clock().sleep(RETRY_MILLIS);
         }
+    }
+
+
+    /**
+     * The window's end: {@link #START_WINDOW_MILLIS} while the primary is starting (the lock held,
+     * no endpoint), else {@link #CONNECT_WINDOW_MILLIS}; {@code null} while it lasts.
+     */
+    private @Nullable Result expired(long aStartNanos, boolean aStarting)
+    {
+        long elapsed = elapsedMillis(aStartNanos);
+        if (aStarting)
+        {
+            if (elapsed < START_WINDOW_MILLIS)
+            {
+                return null;
+            }
+            LOGGER.log(Level.INFO, "Single instance: the primary holds the lock but wrote no"
+                    + " endpoint within " + START_WINDOW_MILLIS + " ms");
+            return Result.extra("no-endpoint");
+        }
+        return elapsed < CONNECT_WINDOW_MILLIS ? null : Result.extra("timeout");
+    }
+
+
+    /**
+     * One attempt at an endpoint that names a socket: the directory check, then {@link #attempt}.
+     */
+    private Result tryEndpoint(Endpoint aEndpoint, List<String> aPaths)
+    {
+        lastToken = aEndpoint.token().orElse(null);
+        Path socket = aEndpoint.socket().orElseThrow();
+        Path socketDir = socket.toAbsolutePath().getParent();
+        if (socketDir != null && !socketDir.equals(instanceDir.toAbsolutePath()))
+        {
+            String why = deps.dirCheck().verifyStrictOwnerOnly(socketDir, instanceDir);
+            if (why != null)
+            {
+                LOGGER.log(Level.INFO, "Single instance: socket directory refused: " + why);
+                return Result.extra("dir-check");
+            }
+        }
+        return attempt(socket, aEndpoint.token().orElse(""), aPaths);
     }
 
 
@@ -354,6 +394,14 @@ public final class HandOffClient
                 LOGGER.log(Level.INFO,
                         "Single instance: the primary is exiting; waiting for its lock");
                 return Result.of(Step.WAIT_LOCK);
+            }
+            case WireCodec.DENIED ->
+            {
+                // a refused OPEN (WireCodec.DENIED_REQUEST): this start opens its files itself
+                String reason = reply.size() > 1 ? reply.get(1) : "";
+                LOGGER.log(Level.INFO,
+                        "Single instance: the primary refused the files (" + reason + ")");
+                return Result.extra("denied-" + reason);
             }
             case WireCodec.BUSY ->
             {

@@ -25,12 +25,9 @@ import java.util.Set;
  * {@code key = value}).
  * <li>In {@code [bootstrap]} a repeated key overwrites, except {@code user-config} (each occurrence
  * adds a candidate, in order) and {@code reserved} (each occurrence adds its comma-separated keys).
- * <li>{@code [bootstrap] single-instance =
- *
-<dir>
- * } opts the distribution into the single-instance gate
- * ({@link net.cumba.bootstrap.instance.InstanceGate}); the value is the instance scope and may not
- * be empty.
+ * <li>{@code [bootstrap] single-instance = <scope>} opts the distribution into the single-instance
+ * gate ({@link net.cumba.bootstrap.instance.InstanceGate}); the value is the instance scope, a
+ * directory, and may not be empty.
  * </ul>
  *
  * <p>

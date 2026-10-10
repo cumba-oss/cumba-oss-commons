@@ -180,7 +180,9 @@ public final class Launcher
     /**
      * The single-instance gate (the config names {@code single-instance}). Off (the property is
      * {@code false}, or {@value #NEW_INSTANCE_ARG} is given) publishes {@code OFF} and touches no
-     * file, lock or socket.
+     * file, lock or socket. Whatever the gate throws unexpectedly - a Windows without Unix domain
+     * sockets, a scope that is no path - publishes {@code EXTRA:error} and the start runs: the gate
+     * is an optimisation, it never stops a start.
      *
      * @return {@code false} when the start was handed off and the launcher must return
      */
@@ -193,11 +195,20 @@ public final class Launcher
             InstanceGate.publishOff();
             return true;
         }
-        Path scope = Path
-                .of(resolver.resolve(config.singleInstanceDir().orElseThrow(), config.source()));
-        Gate gate = gateOverride;
-        InstanceGate.Outcome outcome = gate != null ? gate.enter(scope, args)
-                : InstanceGate.enter(scope, args, Path.of(System.getProperty("user.dir", ".")));
+        InstanceGate.Outcome outcome;
+        try
+        {
+            Path scope = Path.of(
+                    resolver.resolve(config.singleInstanceDir().orElseThrow(), config.source()));
+            Gate gate = gateOverride;
+            outcome = gate != null ? gate.enter(scope, args)
+                    : InstanceGate.enter(scope, args, Path.of(System.getProperty("user.dir", ".")));
+        }
+        catch (RuntimeException e)
+        {
+            InstanceGate.publishError(e);
+            return true;
+        }
         if (outcome.kind() == InstanceGate.Kind.HANDED_OFF)
         {
             return false;

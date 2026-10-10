@@ -284,9 +284,12 @@ installed version: a second start hands its files to the running primary and
 exits. The gate runs between the user overlay and the class loader - the class
 path is fixed, nothing of the application is loaded yet, and the switch below
 may come from the user's overlay. Without the key nothing of this exists: no
-file, no lock, no socket class and no foreign-function class is touched (the
-data browser's build pins that in a forked JVM with `-Xlog:class+load`), which
-is what keeps `cumba-corej-cli` and `cumba-corej-rest` unaffected.
+file, no lock, no socket class and no foreign-function class is touched (this
+module's `NoKeyClassLoadTest` pins that in a forked JVM with
+`-Xlog:class+load`), which is what keeps `cumba-corej-cli` and
+`cumba-corej-rest` unaffected. Whatever the gate throws unexpectedly (a Windows
+without Unix domain sockets, a scope that is no path) is logged and the start
+runs as a separate instance (`EXTRA:error`): the gate never stops a start.
 
 **Switch.** `[properties] cumba.single.instance = ${sys:cumba.single.instance:-true}`
 in the bundled config; the user overlay may set it to `false`. The argument
@@ -310,29 +313,49 @@ to the application, which listens. The application writes the endpoint:
 `socket=<path>`, `token=<64 hex>`, `version=1` - one fresh socket name
 `s-<16 hex>` per start - or `listener=none` + `version=1` when it cannot listen.
 
-**Client.** The lock is held: for up to **10 s** (every 100 ms) the endpoint is
-re-read (missing = the primary is still starting; `listener=none` = separate
-instance at once), the socket's directory is verified when it is not the
-instance directory, and a connection is attempted. On a missing endpoint or a
-refused socket the attempt also tries the lock: free means the old primary
-died before it listened, and this start is the primary. After the hello back
-the client closes its own splash screen, grants the primary the foreground
-(Windows: `AllowSetForegroundWindow` through the foreign function API; the
-`BOOL` and `GetLastError` are logged), sends its paths - every argument not
-starting with `--` that names an existing file or directory, resolved against
-the client's working directory; none = "come to the front" - and reads replies:
-`BUSY STARTING` heartbeats are waited for up to **60 s** in total, `BUSY QUEUED`
-(a modal dialog in the primary: the user's time) without a cap, each reply
-within **5 s** of the last; `ACCEPTED` = handed off, the JVM exits 0 without
-starting the application; `CLOSING` (the primary is exiting) or EOF (it died)
-= wait up to **30 s** for the lock, then become the primary. A different token
-appearing in the endpoint during that wait means a third start took the lock
-first: the client hands off to it instead, at most **3** rounds. Any expiry or
-refusal falls through to a normal start without lock or listener
-(`bootstrap.instance.outcome=EXTRA:<reason>`): worst case two windows, never a
-lost file. The reasons: `no-lock-support`, `dir-check`, `timeout`, `start-cap`,
-`denied-version`, `denied-limit`, `no-listener`, `rounds`, `protocol`,
-`too-many-paths`, `path-too-long`, `interrupted`.
+**Client.** The lock is held. The paths are every argument not starting with
+`--` that names an existing file or directory, resolved against the client's
+working directory (none = "come to the front"); a path holding a line break
+(`\n` or `\r`: legal on Linux and macOS, but the frame splits on them), more
+than 256 paths or one over 32 KiB cannot be handed off, so this start opens
+them itself (`path-newline`, `too-many-paths`, `path-too-long`). These limits
+bound a hand-off only: they are checked after the lock, and a primary opens
+whatever it was given. Then, every 100 ms, the endpoint is re-read, the
+socket's directory is verified when it is not the instance directory, and a
+connection is attempted. On a missing endpoint or a refused socket the attempt
+also tries the lock: free means the old primary died before it listened, and
+this start is the primary. While the lock is held and **no endpoint exists**
+the primary is alive (the operating system releases a dead process's lock)
+and still starting - class loading, a virus scanner on a cold start - so the
+client waits up to **30 s** for it (`no-endpoint`); an endpoint that does not
+answer (a refused socket, a stale token) is given **10 s** (`timeout`).
+`listener=none` (the primary cannot listen) is believed when it is read twice
+in a row, 100 ms apart (`no-listener`): a new primary deletes the previous
+run's endpoint right after taking the lock, so a first reading may be stale.
+After the hello back the client closes its own splash screen, grants the
+primary the foreground (Windows: `AllowSetForegroundWindow` through the foreign
+function API; the `BOOL` and `GetLastError` are logged), sends its paths and
+reads replies: `BUSY STARTING` heartbeats are waited for up to **60 s** in
+total, `BUSY QUEUED` (a modal dialog in the primary: the user's time) without a
+cap, each reply within **5 s** of the last; `ACCEPTED` = handed off, the JVM
+exits 0 without starting the application; `DENIED <reason>` (the primary
+refused the `OPEN`) = a separate instance at once; `CLOSING` (the primary is
+exiting) or EOF (it died) = wait up to **30 s** for the lock, then become the
+primary. A different token appearing in the endpoint during that wait means a
+third start took the lock first: the client hands off to it instead, at most
+**3** rounds. Any expiry or refusal falls through to a normal start without
+lock or listener (`bootstrap.instance.outcome=EXTRA:<reason>`): worst case two
+windows, never a lost file. The reasons: `no-lock-support`, `dir-check`,
+`no-endpoint`, `timeout`, `start-cap`, `denied-version`, `denied-limit`,
+`denied-request` (any `denied-<reason>` the primary sends), `no-listener`,
+`rounds`, `protocol`, `too-many-paths`, `path-too-long`, `path-newline`,
+`interrupted`, `error`.
+
+A known gap: when the previous run's endpoint cannot be deleted (Windows,
+another process holds the file open without delete sharing), clients read it
+until the application replaces it - a refused socket (10 s, then `timeout`) or
+a stale `listener=none` read twice (`no-listener`); either way two windows,
+never a lost file.
 
 **Wire protocol v1** over the Unix domain socket: each frame is a 4-byte
 big-endian length followed by UTF-8 text, lines split on `\n`. The length is
@@ -344,8 +367,9 @@ is allocated.
 | client | `CUMBA-INSTANCE 1\n<token>` | hello: protocol version + the endpoint's token |
 | server | `CUMBA-INSTANCE 1\n<pid>` | hello back: the version it speaks, its pid (for the foreground grant) |
 | server | `DENIED\n<reason>` then close | instead of the hello back: `token` (compared in constant time; the client re-reads the endpoint and retries inside its window), `version` (the client goes EXTRA), `limit` (too many concurrent connections; EXTRA) |
-| client | `OPEN\n<n>\n<path 1>\n...<path n>` | absolute paths, `n <= 256`, each at most 32 KiB |
+| client | `OPEN\n<n>\n<path 1>\n...<path n>` | absolute paths, `n <= 256`, each at most 32 KiB, none holding `\n` or `\r` |
 | server | `BUSY\n<state>` (0..n times) then `ACCEPTED` or `CLOSING` | `STARTING` (the primary is building its window) or `QUEUED` (a modal dialog); a missing or unknown state counts as `STARTING` |
+| server | `DENIED\n<reason>` then close | instead of the replies above, for an `OPEN` the server refuses: `request` (malformed, over the limits); the client goes EXTRA (`denied-<reason>`) |
 
 The constants are spelled in this jar and in the application's server half -
 the halves share a protocol, not types - and the distribution's build pins the
@@ -357,8 +381,14 @@ random token per primary start, read from the owner-only endpoint file; where
 the application falls back to a socket directory under a shared location
 (Linux: `$XDG_RUNTIME_DIR`, else `java.io.tmpdir`) the client verifies, before
 connecting, that the directory is not a symbolic link, is owned by the current
-user and is exactly `rwx------`. The server only *opens files as the user
-would*; nothing is executed. Every blocking connect, write and read is guarded
+user and is exactly `rwx------`. The current user is taken from the file
+system - the owner of the instance directory - never from `user.name`, which a
+`-D` can set to anything and a directory-service name need not round-trip. A
+peer-credential check (`SO_PEERCRED`, plan SI2 (c)) is **not implemented**: the
+owner-only directories keep other users from the socket, and the token is the
+check that holds on all three operating systems (Windows has no peer
+credentials). The server only *opens files as the user would*; nothing is
+executed. Every blocking connect, write and read is guarded
 by a close watchdog (a Unix-domain `SocketChannel` has no `SO_TIMEOUT`): a daemon
 thread closes the channel when the deadline passes.
 

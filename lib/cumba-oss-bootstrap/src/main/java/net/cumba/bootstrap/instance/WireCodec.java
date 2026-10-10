@@ -36,7 +36,8 @@ import java.util.List;
  * <tr>
  * <td>server</td>
  * <td>{@code BUSY\n<state>} (0..n times, {@code STARTING} or {@code QUEUED}) then {@code ACCEPTED}
- * or {@code CLOSING}</td>
+ * or {@code CLOSING}; or {@code DENIED\n<reason>} then close for an {@code OPEN} it refuses
+ * ({@code request})</td>
  * </tr>
  * </table>
  *
@@ -82,6 +83,12 @@ public final class WireCodec
 
     /** {@link #DENIED} reason: too many concurrent connections. */
     public static final String DENIED_LIMIT = "limit";
+
+    /**
+     * {@link #DENIED} reason, in reply to an {@link #OPEN}: a request the server refuses
+     * (malformed, over the limits); the client starts a separate instance at once.
+     */
+    public static final String DENIED_REQUEST = "request";
 
     /** Most paths in one {@link #OPEN}. */
     public static final int MAX_PATHS = 256;

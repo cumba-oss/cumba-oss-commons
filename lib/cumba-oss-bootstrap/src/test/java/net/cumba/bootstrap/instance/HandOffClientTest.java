@@ -79,6 +79,8 @@ class HandOffClientTest
 
         final List<Path> verified = new ArrayList<>();
 
+        final List<Path> references = new ArrayList<>();
+
         @Override
         public @Nullable String ensureOwnerOnly(Path aDir)
         {
@@ -88,9 +90,10 @@ class HandOffClientTest
 
 
         @Override
-        public @Nullable String verifyStrictOwnerOnly(Path aDir)
+        public @Nullable String verifyStrictOwnerOnly(Path aDir, Path aOwnDir)
         {
             verified.add(aDir);
+            references.add(aOwnDir);
             return strictReason;
         }
     }
@@ -428,11 +431,98 @@ class HandOffClientTest
     @Test
     void noEndpointAndTheLockHeldExpiresIntoExtra()
     {
+        // review M2: the lock holder is alive but wrote no endpoint - the long window, then EXTRA
         Outcome o = enterHeld(file1.toString());
-        assertExtra(o, "timeout");
-        assertTrue(
-                clock.sleeps() >= HandOffClient.CONNECT_WINDOW_MILLIS / HandOffClient.RETRY_MILLIS,
-                "the whole window: " + clock.sleeps());
+        assertExtra(o, "no-endpoint");
+        assertEquals(HandOffClient.START_WINDOW_MILLIS / HandOffClient.RETRY_MILLIS, clock.sleeps(),
+                "exactly the 30 s window");
+    }
+
+
+    @Test
+    void aColdPrimaryThatListensAfterTwentyFiveSecondsStillGetsTheFiles() throws Exception
+    {
+        // review M2: the motivating case - the app was not running, five files were opened at
+        // once, and the primary's cold start (class loading, a virus scanner) takes 25 s to its
+        // endpoint. The lock is held all along, so the primary is alive: no EXTRA at 10 s.
+        StandInServer s = new StandInServer(tmp.resolve("not-yet"), instanceDir,
+                n -> Script.accepted());
+        server = s;
+        AtomicInteger sleeps = new AtomicInteger();
+        clock.onSleep(() ->
+        {
+            if (sleeps.incrementAndGet() == 250)
+            {
+                pointEndpointAt(s);
+            }
+        });
+        Outcome o = enterHeld(file1.toString());
+        assertEquals(Kind.HANDED_OFF, o.kind(), o.toString());
+        assertEquals(List.of(List.of(file1.toString())), s.opens());
+        assertEquals(250, clock.sleeps(), "waited the 25 s, not a moment longer");
+    }
+
+
+    @Test
+    void aRefusedSocketKeepsTheShortWindowEvenWithTheLockHeld() throws Exception
+    {
+        // only "lock held and no endpoint" extends the window; a refused socket (a stale
+        // endpoint, or a listener that died) still gives up after 10 s
+        StandInServer.writeEndpoint(instanceDir, instanceDir.resolve("s-gone"), "t");
+        assertExtra(enterHeld(file1.toString()), "timeout");
+        assertEquals(HandOffClient.CONNECT_WINDOW_MILLIS / HandOffClient.RETRY_MILLIS,
+                clock.sleeps(), "exactly the 10 s window");
+    }
+
+
+    @Test
+    void aStaleListenerNoneIsReadAgainBeforeGoingExtra() throws Exception
+    {
+        // review LOW 11: the previous run could not listen and left listener=none; a new primary
+        // took the lock and deletes that file a moment later. A client reading it in between
+        // must not go EXTRA on the stale file.
+        Files.writeString(instanceDir.resolve(Endpoint.FILE_NAME), "listener=none\nversion=1\n",
+                StandardCharsets.UTF_8);
+        StandInServer s = new StandInServer(tmp.resolve("not-yet"), instanceDir,
+                n -> Script.accepted());
+        server = s;
+        clock.onSleep(() -> pointEndpointAt(s));
+        Outcome o = enterHeld(file1.toString());
+        assertEquals(Kind.HANDED_OFF, o.kind(), o.toString());
+        assertEquals(1, clock.sleeps(), "read once more after one pause");
+    }
+
+
+    @Test
+    void aPathWithALineBreakIsNeverSent() throws Exception
+    {
+        // review LOW 4: the frame splits on \n and strips a trailing \r, so such a path would
+        // reach the primary as other paths; this start opens its files itself instead
+        Path lf = Files.writeString(tmp.resolve("line\nbreak.csv"), "x");
+        Path cr = Files.writeString(tmp.resolve("carriage\r"), "x");
+        StandInServer s = serve(Script.accepted());
+        assertExtra(enterHeld(file1.toString(), lf.toString()), "path-newline");
+        assertExtra(enterHeld(cr.toString()), "path-newline");
+        assertEquals(List.of(), s.hellos(), "never connected");
+        assertEquals(List.of(), s.opens(), "never sent");
+    }
+
+
+    @Test
+    void aDeniedOpenIsExtraAtOnce() throws Exception
+    {
+        // the server refuses an OPEN it cannot take with DENIED <reason> (review LOW 4, server
+        // half): a separate instance at once, never the lock wait
+        StandInServer s = serve(
+                Script.ending(End.EOF, WireCodec.DENIED + "\n" + WireCodec.DENIED_REQUEST));
+        ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD);
+        assertExtra(enter(lock, file1.toString()), "denied-request");
+        assertEquals(1, s.opens().size());
+        assertEquals(1, lock.files.size(), "the gate's probe only: no lock wait");
+        assertEquals(0, clock.sleeps());
+        server.close();
+        serve(Script.ending(End.EOF, WireCodec.DENIED));
+        assertExtra(enterHeld(file1.toString()), "denied-");
     }
 
 
@@ -458,14 +548,6 @@ class HandOffClientTest
                 LockProbe.Status.ACQUIRED);
         assertEquals(Kind.PRIMARY, enter(lock, file1.toString()).kind());
         assertEquals(0, splashClosed.get(), "no hello back, the splash stays");
-    }
-
-
-    @Test
-    void aRefusedSocketWithTheLockHeldExpiresIntoExtra() throws Exception
-    {
-        StandInServer.writeEndpoint(instanceDir, instanceDir.resolve("s-gone"), "t");
-        assertExtra(enterHeld(file1.toString()), "timeout");
     }
 
 
@@ -515,8 +597,10 @@ class HandOffClientTest
     {
         Files.writeString(instanceDir.resolve(Endpoint.FILE_NAME), "listener=none\nversion=1\n",
                 StandardCharsets.UTF_8);
-        assertExtra(enterHeld(file1.toString()), "no-listener");
-        assertEquals(0, clock.sleeps());
+        ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD);
+        assertExtra(enter(lock, file1.toString()), "no-listener");
+        assertEquals(1, clock.sleeps(), "confirmed by a second read (review LOW 11)");
+        assertEquals(2, lock.files.size(), "the gate's probe + one on the first sighting");
         assertEquals(0, scheduler.delays().size(), "no connect attempt");
     }
 
@@ -530,6 +614,8 @@ class HandOffClientTest
         dirCheck.strictReason = run + " is owned by somebody";
         assertExtra(enterHeld(file1.toString()), "dir-check");
         assertEquals(List.of(run), dirCheck.verified);
+        assertEquals(List.of(instanceDir), dirCheck.references,
+                "the owner to match is the instance directory's (review LOW 6)");
         assertEquals(0, s.hellos().size(), "refused before connecting");
         dirCheck.strictReason = null;
         assertEquals(Kind.HANDED_OFF, enterHeld(file1.toString()).kind());

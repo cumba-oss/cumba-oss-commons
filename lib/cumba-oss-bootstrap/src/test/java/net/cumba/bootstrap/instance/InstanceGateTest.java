@@ -142,16 +142,31 @@ class InstanceGateTest
         };
         assertEquals("path-too-long", assertThrows(IllegalArgumentException.class,
                 () -> InstanceGate.pathsOf(tooLong, tmp, p -> true)).getMessage());
-        // and the gate turns that into EXTRA (real files: the gate uses the real existence test)
+    }
+
+
+    @Test
+    void theLimitsApplyToAHandOffOnlyNeverToAPrimary() throws Exception
+    {
+        // review LOW 3: the limits are the protocol's. With the lock free this start is the
+        // primary and opens its 257 files itself; checked before the lock, the limit made it an
+        // EXTRA without a lock, so the next start became a second primary.
         String[] files = new String[WireCodec.MAX_PATHS + 1];
         for (int i = 0; i < files.length; i++)
         {
             files[i] = Files.writeString(tmp.resolve("f" + i), "").toString();
         }
-        Outcome o = InstanceGate.enter(tmp, files, tmp,
-                deps(new ScriptedLock(LockProbe.Status.ACQUIRED), new FakeDirCheck()));
-        assertEquals(Kind.EXTRA, o.kind());
-        assertEquals("too-many-paths", o.reason());
+        ScriptedLock free = new ScriptedLock(LockProbe.Status.ACQUIRED);
+        Outcome primary = InstanceGate.enter(tmp, files, tmp, deps(free, new FakeDirCheck()));
+        assertEquals(Kind.PRIMARY, primary.kind(), primary.toString());
+        assertEquals(1, free.files.size());
+
+        // held: the hand-off cannot carry them - EXTRA, after the lock probe, before any connect
+        ScriptedLock held = new ScriptedLock(LockProbe.Status.HELD);
+        Outcome extra = InstanceGate.enter(tmp, files, tmp, deps(held, new FakeDirCheck()));
+        assertEquals(Kind.EXTRA, extra.kind());
+        assertEquals("too-many-paths", extra.reason());
+        assertEquals(1, held.files.size(), "the lock was probed first");
     }
 
 

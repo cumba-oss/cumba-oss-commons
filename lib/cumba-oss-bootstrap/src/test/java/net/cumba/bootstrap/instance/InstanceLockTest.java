@@ -80,7 +80,9 @@ class InstanceLockTest
     {
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
         String classpath = System.getProperty("java.class.path");
-        ProcessBuilder pb = new ProcessBuilder(java, "-cp", classpath,
+        // a child inherits no surefire system property: the redirected home is passed on
+        ProcessBuilder pb = new ProcessBuilder(java,
+                "-Duser.home=" + System.getProperty("user.home"), "-cp", classpath,
                 LockHolderMain.class.getName(), aLockFile.toString());
         pb.redirectErrorStream(false);
         pb.redirectError(ProcessBuilder.Redirect.INHERIT);
