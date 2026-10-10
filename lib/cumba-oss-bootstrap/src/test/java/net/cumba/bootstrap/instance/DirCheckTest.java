@@ -38,10 +38,13 @@ class DirCheckTest
         Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwxr-xr-x"));
         assertNull(DirCheck.DEFAULT.ensureOwnerOnly(dir), "a second start");
         assertEquals("rwx------", mode(dir), "re-verified: the mode is applied again");
-        // the parents are created too
+        // the parents are created too, and owner-only at creation like the directory itself
+        // (the mode is re-applied to the directory only, never to its parents)
         Path deep = tmp.resolve("a").resolve("b").resolve("instance");
         assertNull(DirCheck.DEFAULT.ensureOwnerOnly(deep));
         assertEquals("rwx------", mode(deep));
+        assertEquals("rwx------", mode(tmp.resolve("a")));
+        assertEquals("rwx------", mode(tmp.resolve("a").resolve("b")));
     }
 
 
@@ -56,6 +59,7 @@ class DirCheckTest
         // and a parent that cannot be created
         String why2 = DirCheck.DEFAULT.ensureOwnerOnly(file.resolve("below"));
         assertNotNull(why2);
+        assertTrue(why2.startsWith(file.resolve("below") + ": java.nio.file."), why2);
     }
 
 

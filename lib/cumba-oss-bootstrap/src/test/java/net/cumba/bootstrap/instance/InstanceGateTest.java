@@ -7,9 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.logging.Level;
 import net.cumba.bootstrap.instance.HandOffClientTest.FakeDirCheck;
 import net.cumba.bootstrap.instance.HandOffClientTest.ScriptedLock;
 import net.cumba.bootstrap.instance.InstanceGate.Deps;
@@ -74,7 +76,13 @@ class InstanceGateTest
         FakeDirCheck dirCheck = new FakeDirCheck();
         dirCheck.ensureReason = "nope";
         ScriptedLock lock = new ScriptedLock(LockProbe.Status.ACQUIRED);
-        Outcome o = InstanceGate.enter(tmp, new String[0], tmp, deps(lock, dirCheck));
+        Outcome o;
+        try (LogCapture log = LogCapture.on(InstanceGate.class))
+        {
+            o = InstanceGate.enter(tmp, new String[0], tmp, deps(lock, dirCheck));
+            log.assertLogged(Level.INFO,
+                    "instance directory refused (nope); starting as a separate instance");
+        }
         assertEquals(Kind.EXTRA, o.kind());
         assertEquals("dir-check", o.reason());
         assertEquals(List.of(), lock.files, "no lock probe");
@@ -142,6 +150,20 @@ class InstanceGateTest
         };
         assertEquals("path-too-long", assertThrows(IllegalArgumentException.class,
                 () -> InstanceGate.pathsOf(tooLong, tmp, p -> true)).getMessage());
+        // the cap is on the absolute path's UTF-8 bytes, inclusive
+        String prefix = tmp.toAbsolutePath().normalize() + tmp.getFileSystem().getSeparator();
+        int room = WireCodec.MAX_PATH_BYTES - prefix.getBytes(StandardCharsets.UTF_8).length;
+        String[] atTheCap =
+        {
+                prefix + "x".repeat(room)
+        };
+        assertEquals(List.of(atTheCap[0]), InstanceGate.pathsOf(atTheCap, tmp, p -> true));
+        String[] overTheCap =
+        {
+                prefix + "x".repeat(room + 1)
+        };
+        assertEquals("path-too-long", assertThrows(IllegalArgumentException.class,
+                () -> InstanceGate.pathsOf(overTheCap, tmp, p -> true)).getMessage());
     }
 
 
@@ -163,7 +185,13 @@ class InstanceGateTest
 
         // held: the hand-off cannot carry them - EXTRA, after the lock probe, before any connect
         ScriptedLock held = new ScriptedLock(LockProbe.Status.HELD);
-        Outcome extra = InstanceGate.enter(tmp, files, tmp, deps(held, new FakeDirCheck()));
+        Outcome extra;
+        try (LogCapture log = LogCapture.on(InstanceGate.class))
+        {
+            extra = InstanceGate.enter(tmp, files, tmp, deps(held, new FakeDirCheck()));
+            log.assertLogged(Level.INFO,
+                    "Single instance: too-many-paths; starting as a separate instance");
+        }
         assertEquals(Kind.EXTRA, extra.kind());
         assertEquals("too-many-paths", extra.reason());
         assertEquals(1, held.files.size(), "the lock was probed first");
@@ -186,7 +214,12 @@ class InstanceGateTest
         // a non-empty directory in the endpoint's place cannot be deleted by deleteIfExists
         Path endpoint = tmp.resolve("endpoint");
         Files.createDirectories(endpoint.resolve("child"));
-        InstanceGate.deleteStaleEndpoint(endpoint);
+        try (LogCapture log = LogCapture.on(InstanceGate.class))
+        {
+            InstanceGate.deleteStaleEndpoint(endpoint);
+            log.assertLogged(Level.INFO, "cannot delete the previous endpoint " + endpoint
+                    + " (java.nio.file.DirectoryNotEmptyException");
+        }
         assertTrue(Files.isDirectory(endpoint), "still there, the gate went on");
         InstanceGate.deleteStaleEndpoint(tmp.resolve("absent"));
     }
@@ -200,6 +233,36 @@ class InstanceGateTest
         System.setProperty("java.awt.headless", "true");
         assertDoesNotThrow(InstanceGate::closeSplashScreen);
         assertTrue(java.awt.GraphicsEnvironment.isHeadless());
+    }
+
+
+    @Test
+    void anUnexpectedGateFailureIsLoggedWithItsCauseAndPublishedAsExtra()
+    {
+        IllegalStateException failure = new IllegalStateException("no unix sockets here");
+        try (LogCapture log = LogCapture.on(InstanceGate.class))
+        {
+            InstanceGate.publishError(failure);
+            log.assertLogged(Level.WARNING, "the gate failed; starting as a separate instance");
+            log.assertLoggedWithThrowable(Level.WARNING, IllegalStateException.class);
+        }
+        assertEquals("EXTRA:error", System.getProperty(InstanceGate.OUTCOME_PROPERTY));
+        assertNull(System.getProperty(InstanceGate.DIR_PROPERTY));
+    }
+
+
+    @Test
+    void theRealSeamsMakeAFreshScopePrimary()
+    {
+        // the production entry: the real directory check, the real lock, nothing else running
+        Path scope = tmp.resolve("real-scope");
+        Outcome o = InstanceGate.enter(scope, new String[0], tmp);
+        assertEquals(Kind.PRIMARY, o.kind(), o.toString());
+        assertEquals(scope.resolve(Endpoint.DIR_NAME), o.instanceDir());
+        assertTrue(Files.isRegularFile(o.instanceDir().resolve(Endpoint.LOCK_FILE_NAME)));
+        assertEquals(LockProbe.Status.HELD,
+                new InstanceLock().tryLock(o.instanceDir().resolve(Endpoint.LOCK_FILE_NAME)),
+                "this JVM holds the lock now");
     }
 
 

@@ -5,8 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -141,13 +144,28 @@ class BootstrapTest
     }
 
 
+    // originalErr is the JVM's stderr, restored here, never ours to close
+    @SuppressWarnings("PMD.CloseResource")
     @Test
     void aFailingDialogNeverEscapes()
     {
-        assertFalse(Bootstrap.showErrorDialogIfEnabled("boom", _ -> "true", () -> false, _ ->
+        // and says so on stderr, beside the failure it could not show
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        try (PrintStream capture = new PrintStream(err, true, StandardCharsets.UTF_8))
         {
-            throw new UnsatisfiedLinkError("no awt");
-        }));
+            System.setErr(capture);
+            assertFalse(Bootstrap.showErrorDialogIfEnabled("boom", _ -> "true", () -> false, _ ->
+            {
+                throw new UnsatisfiedLinkError("no awt");
+            }));
+        }
+        finally
+        {
+            System.setErr(originalErr);
+        }
+        assertEquals("bootstrap: cannot show the error dialog: java.lang.UnsatisfiedLinkError:"
+                + " no awt" + System.lineSeparator(), err.toString(StandardCharsets.UTF_8));
     }
 
 
@@ -168,6 +186,7 @@ class BootstrapTest
         assertTrue(text.getLineWrap());
         assertTrue(text.getWrapStyleWord());
         assertFalse(text.isEditable());
+        assertFalse(text.isOpaque(), "drawn on the option pane's background, not a white box");
         assertTrue(text.getText().contains("databrowser.conf:9: broken"));
     }
 
@@ -177,7 +196,7 @@ class BootstrapTest
     {
         // "ANSI" / Windows-1252 with an umlaut: 0xE4 is not valid UTF-8.
         Files.write(conf, "[bootstrap]\n# J\u00e4ger\nmain-class = a.B\n"
-                .getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+                .getBytes(StandardCharsets.ISO_8859_1));
         UnaryOperator<String> sys = key -> ConfigLocator.CONFIG_OVERRIDE_PROPERTY.equals(key)
                 ? conf.toString()
                 : null;

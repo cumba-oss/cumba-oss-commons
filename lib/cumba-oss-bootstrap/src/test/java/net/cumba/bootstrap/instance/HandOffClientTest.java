@@ -5,6 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.net.StandardProtocolFamily;
+import java.net.UnixDomainSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,6 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.logging.Level;
 import net.cumba.bootstrap.instance.InstanceGate.Deps;
 import net.cumba.bootstrap.instance.InstanceGate.Kind;
 import net.cumba.bootstrap.instance.InstanceGate.Outcome;
@@ -121,6 +127,9 @@ class HandOffClientTest
 
     private Path file2;
 
+    /** What the client logged: the only place that says why a start went EXTRA. */
+    private LogCapture log;
+
     @BeforeEach
     void setUp() throws IOException
     {
@@ -132,12 +141,14 @@ class HandOffClientTest
         dirCheck = new FakeDirCheck();
         file1 = Files.writeString(tmp.resolve("a.csv"), "x");
         file2 = Files.writeString(tmp.resolve("b.csv"), "y");
+        log = LogCapture.on(HandOffClient.class);
     }
 
 
     @AfterEach
     void tearDown() throws IOException
     {
+        log.close();
         if (server != null)
         {
             server.close();
@@ -209,6 +220,8 @@ class HandOffClientTest
         assertEquals(1, splashClosed.get(), "the splash closes on the hello back");
         assertEquals(List.of(ProcessHandle.current().pid()), granted,
                 "the foreground grant goes to the server's pid");
+        log.assertLogged(Level.INFO, "foreground grant to pid " + ProcessHandle.current().pid()
+                + ": granted (last error 0)");
         assertEquals(0, scheduler.pending(), "every watchdog guard was closed");
         assertEquals(0, clock.sleeps(), "no retry was needed");
     }
@@ -229,6 +242,20 @@ class HandOffClientTest
     {
         clock.stepPerReading(30_000);
         serve(Script.ending(End.HANG, BUSY_STARTING, BUSY_STARTING, BUSY_STARTING));
+        assertExtra(enterHeld(file1.toString()), "start-cap");
+        log.assertLogged(Level.INFO, "the primary did not finish starting within "
+                + HandOffClient.START_CAP_MILLIS + " ms");
+        log.assertLogged(Level.INFO, "no hand-off (start-cap); starting as a separate instance");
+    }
+
+
+    @Test
+    void aHeartbeatAtExactlyTheCapEndsTheWait() throws Exception
+    {
+        // the cap is inclusive: the third heartbeat is read at exactly 60 s (one clock reading
+        // per heartbeat, 20 s each, from the OPEN) - EXTRA there, the ACCEPTED behind it unread
+        clock.stepPerReading(20_000);
+        serve(Script.accepted(BUSY_STARTING, BUSY_STARTING, BUSY_STARTING));
         assertExtra(enterHeld(file1.toString()), "start-cap");
     }
 
@@ -289,6 +316,7 @@ class HandOffClientTest
         assertFalse(Files.exists(instanceDir.resolve(Endpoint.FILE_NAME)),
                 "the stale endpoint is deleted right after the lock was taken");
         assertEquals(4, lock.files.size(), "gate probe + 3 in the wait");
+        log.assertLogged(Level.INFO, "the primary is exiting; waiting for its lock");
         assertTrue(lock.files.stream()
                 .allMatch(f -> f.equals(instanceDir.resolve(Endpoint.LOCK_FILE_NAME))));
     }
@@ -301,6 +329,7 @@ class HandOffClientTest
         ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD, LockProbe.Status.HELD,
                 LockProbe.Status.ACQUIRED);
         assertEquals(Kind.PRIMARY, enter(lock, file1.toString()).kind());
+        log.assertLogged(Level.INFO, "the primary closed the connection; waiting for its lock");
     }
 
 
@@ -310,8 +339,8 @@ class HandOffClientTest
         serve(Script.ending(End.CLOSING));
         Outcome o = enterHeld(file1.toString());
         assertExtra(o, "timeout");
-        assertTrue(clock.sleeps() >= HandOffClient.LOCK_WAIT_MILLIS / HandOffClient.RETRY_MILLIS,
-                "slept through the whole lock wait: " + clock.sleeps());
+        assertEquals(HandOffClient.LOCK_WAIT_MILLIS / HandOffClient.RETRY_MILLIS, clock.sleeps(),
+                "exactly the 30 s lock wait: it ends the moment it has lasted that long");
     }
 
 
@@ -356,6 +385,8 @@ class HandOffClientTest
             assertEquals(List.of(instanceDir.resolve("b")), dirCheck.verified,
                     "b's socket directory is not the instance directory: verified strictly");
             assertEquals(2, splashClosed.get(), "a hello back per round");
+            log.assertLogged(Level.INFO, "a new primary took the lock during the wait; handing"
+                    + " off to it (round 2)");
         }
     }
 
@@ -388,6 +419,9 @@ class HandOffClientTest
                 assertEquals(1, servers.get(i).opens().size(), "round " + (i + 1));
             }
             assertEquals(0, s3.opens().size(), "no fourth round");
+            log.assertLogged(Level.INFO, "handing off to it (round 2)");
+            log.assertLogged(Level.INFO, "handing off to it (round 3)");
+            log.assertLogged(Level.INFO, "no hand-off (rounds); starting as a separate instance");
         }
     }
 
@@ -436,6 +470,8 @@ class HandOffClientTest
         assertExtra(o, "no-endpoint");
         assertEquals(HandOffClient.START_WINDOW_MILLIS / HandOffClient.RETRY_MILLIS, clock.sleeps(),
                 "exactly the 30 s window");
+        log.assertLogged(Level.INFO, "the primary holds the lock but wrote no endpoint within "
+                + HandOffClient.START_WINDOW_MILLIS + " ms");
     }
 
 
@@ -472,6 +508,8 @@ class HandOffClientTest
         assertExtra(enterHeld(file1.toString()), "timeout");
         assertEquals(HandOffClient.CONNECT_WINDOW_MILLIS / HandOffClient.RETRY_MILLIS,
                 clock.sleeps(), "exactly the 10 s window");
+        log.assertLogged(Level.FINE, "connect to " + instanceDir.resolve("s-gone") + ": ");
+        log.assertLogged(Level.INFO, "no hand-off (timeout); starting as a separate instance");
     }
 
 
@@ -520,9 +558,60 @@ class HandOffClientTest
         assertEquals(1, s.opens().size());
         assertEquals(1, lock.files.size(), "the gate's probe only: no lock wait");
         assertEquals(0, clock.sleeps());
+        log.assertLogged(Level.INFO, "the primary refused the files (request)");
         server.close();
         serve(Script.ending(End.EOF, WireCodec.DENIED));
         assertExtra(enterHeld(file1.toString()), "denied-");
+        log.assertLogged(Level.INFO, "the primary refused the files ()");
+    }
+
+
+    @Test
+    void aDeniedHelloWithoutAReasonIsExtra() throws Exception
+    {
+        // a bare DENIED (no reason line) on the hello: refused, not a protocol error
+        serve(Script.hello(WireCodec.DENIED));
+        assertExtra(enterHeld(file1.toString()), "denied-");
+        log.assertLogged(Level.INFO, "the primary denied the hand-off ()");
+        assertEquals(0, clock.sleeps(), "no retry: only DENIED token is retried");
+    }
+
+
+    @Test
+    void aBrokenFrameFromThePrimaryIsAFailedConnection() throws Exception
+    {
+        // not an EOF, not a time-out: a reply whose length prefix is over the cap. The attempt
+        // counts as a failed connection, so the lock is tried - here free: PRIMARY
+        Path socket = instanceDir.resolve(Endpoint.SOCKET_PREFIX + "raw");
+        try (ServerSocketChannel raw = ServerSocketChannel.open(StandardProtocolFamily.UNIX))
+        {
+            raw.bind(UnixDomainSocketAddress.of(socket));
+            StandInServer.writeEndpoint(instanceDir, socket, "t");
+            CompletableFuture<String> peer = CompletableFuture.supplyAsync(() ->
+            {
+                try (SocketChannel c = raw.accept())
+                {
+                    String hello = WireCodec.read(c);
+                    c.write(ByteBuffer.allocate(4).putInt(Integer.MAX_VALUE).flip());
+                    return hello;
+                }
+                catch (IOException e)
+                {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            });
+            ScriptedLock lock = new ScriptedLock(LockProbe.Status.HELD, LockProbe.Status.ACQUIRED);
+            Outcome o = enter(lock, file1.toString());
+            assertEquals(Kind.PRIMARY, o.kind(), o.toString());
+            assertEquals(WireCodec.hello("t"), peer.get(10, TimeUnit.SECONDS));
+            assertEquals(2, lock.files.size(), "the gate's probe + one after the failed attempt");
+            log.assertLogged(Level.INFO, "connection failed: java.io.IOException: frame length "
+                    + Integer.MAX_VALUE + " exceeds the cap");
+        }
+        finally
+        {
+            Files.deleteIfExists(socket);
+        }
     }
 
 
@@ -581,6 +670,7 @@ class HandOffClientTest
     {
         serve(Script.denied(WireCodec.DENIED_VERSION));
         assertExtra(enterHeld(file1.toString()), "denied-version");
+        log.assertLogged(Level.INFO, "the primary denied the hand-off (version)");
         server.close();
         serve(Script.denied(WireCodec.DENIED_LIMIT));
         assertExtra(enterHeld(file1.toString()), "denied-limit");
@@ -613,6 +703,7 @@ class HandOffClientTest
         server = s;
         dirCheck.strictReason = run + " is owned by somebody";
         assertExtra(enterHeld(file1.toString()), "dir-check");
+        log.assertLogged(Level.INFO, "socket directory refused: " + run + " is owned by somebody");
         assertEquals(List.of(run), dirCheck.verified);
         assertEquals(List.of(instanceDir), dirCheck.references,
                 "the owner to match is the instance directory's (review LOW 6)");
@@ -638,12 +729,14 @@ class HandOffClientTest
     {
         serve(Script.hello("HTTP/1.1 200 OK\nnope"));
         assertExtra(enterHeld(file1.toString()), "protocol");
+        log.assertLogged(Level.INFO, "unexpected hello: HTTP/1.1 200 OK");
         server.close();
         serve(Script.hello(WireCodec.PROTOCOL + " 1"));
         assertExtra(enterHeld(file1.toString()), "protocol");
         server.close();
         serve(Script.accepted("WHAT\nIS THIS"));
         assertExtra(enterHeld(file1.toString()), "protocol");
+        log.assertLogged(Level.INFO, "unexpected reply: WHAT");
     }
 
 
@@ -653,6 +746,7 @@ class HandOffClientTest
         serve(new Script(WireCodec.PROTOCOL + " 1\nnot-a-pid", List.of(), End.ACCEPTED));
         assertEquals(Kind.HANDED_OFF, enterHeld(file1.toString()).kind());
         assertEquals(List.of(), granted);
+        log.assertLogged(Level.INFO, "no pid in the hello back: not-a-pid");
     }
 
 
@@ -669,6 +763,8 @@ class HandOffClientTest
                 file1.toString()
         }, tmp, deps(new ScriptedLock(LockProbe.Status.HELD), failing));
         assertEquals(Kind.HANDED_OFF, o.kind());
+        log.assertLogged(Level.INFO,
+                "foreground grant unavailable: java.lang.UnsatisfiedLinkError: no user32 here");
         ForegroundGrant refused = aPid -> new ForegroundGrant.Result(0, 5);
         server.close();
         serve(Script.accepted());
@@ -676,6 +772,8 @@ class HandOffClientTest
         {
                 file1.toString()
         }, tmp, deps(new ScriptedLock(LockProbe.Status.HELD), refused)).kind());
+        log.assertLogged(Level.INFO, "foreground grant to pid " + ProcessHandle.current().pid()
+                + ": refused (last error 5)");
     }
 
 
@@ -692,6 +790,8 @@ class HandOffClientTest
         {
                 file1.toString()
         }, tmp, d).kind());
+        log.assertLogged(Level.FINE, "closing the splash screen: java.lang.IllegalStateException:"
+                + " headless after all");
     }
 
     // ---- the watchdog ---------------------------------------------------------------------
@@ -710,6 +810,8 @@ class HandOffClientTest
                 "the read is guarded by the reply gap");
         assertEquals(1, scheduler.fireAll(), "the watchdog closes the channel");
         assertExtra(client.get(10, TimeUnit.SECONDS), "timeout");
+        log.assertLogged(Level.INFO,
+                "Single instance: no reply within " + HandOffClient.REPLY_GAP_MILLIS + " ms");
     }
 
 
@@ -763,7 +865,7 @@ class HandOffClientTest
     @Test
     void interruptedWhileWaitingIsExtra()
     {
-        Thread.currentThread().interrupt();
+        // like Thread.sleep, the fake throws with the flag cleared: the client must set it again
         try
         {
             Deps d = new Deps(new Clock()
@@ -790,7 +892,8 @@ class HandOffClientTest
         }
         finally
         {
-            assertTrue(Thread.interrupted());
+            // clear it again for the next test on this thread
+            Thread.interrupted();
         }
     }
 }

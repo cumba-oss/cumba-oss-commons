@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -13,6 +14,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.stream.Stream;
 import net.cumba.bootstrap.itmain.LockHolderMain;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,9 +41,16 @@ class InstanceLockTest
                         new InputStreamReader(holder.getInputStream(), StandardCharsets.UTF_8)))
         {
             assertEquals("LOCK ACQUIRED", out.readLine(), "the holder took the lock");
+            long fdsBefore = openFileDescriptors();
             assertEquals(LockProbe.Status.HELD, new InstanceLock().tryLock(lockFile));
             assertEquals(LockProbe.Status.HELD, new InstanceLock().tryLock(lockFile),
                     "still held: a probe does not disturb the holder");
+            if (fdsBefore >= 0)
+            {
+                // the lock wait probes every 100 ms for 30 s: a probe that kept its channel
+                // would leak 300 open files per wait
+                assertEquals(fdsBefore, openFileDescriptors(), "a held probe leaves no file open");
+            }
             stdin.close();
             assertTrue(holder.waitFor(30, TimeUnit.SECONDS), "the holder exits on EOF");
         }
@@ -71,8 +81,37 @@ class InstanceLockTest
     {
         Path file = Files.writeString(tmp.resolve("file"), "x");
         // a lock file whose parent is a regular file cannot be created
-        assertEquals(LockProbe.Status.UNSUPPORTED,
-                new InstanceLock().tryLock(file.resolve("instance.lock")));
+        try (LogCapture log = LogCapture.on(InstanceLock.class))
+        {
+            assertEquals(LockProbe.Status.UNSUPPORTED,
+                    new InstanceLock().tryLock(file.resolve("instance.lock")));
+            log.assertLogged(Level.INFO, "cannot lock " + file.resolve("instance.lock") + " (");
+            log.assertLogged(Level.INFO, "); running as a separate instance");
+        }
+    }
+
+
+    @Test
+    void theMissingDirectoriesOfTheLockFileAreCreated()
+    {
+        Path lockFile = tmp.resolve("new").resolve("deeper").resolve("instance.lock");
+        assertEquals(LockProbe.Status.ACQUIRED, new InstanceLock().tryLock(lockFile));
+        assertTrue(Files.isRegularFile(lockFile), "created with its parents");
+    }
+
+
+    /** This process's open file descriptors where {@code /proc} shows them (Linux), else -1. */
+    private static long openFileDescriptors() throws IOException
+    {
+        Path fds = Path.of("/proc/self/fd");
+        if (!Files.isDirectory(fds))
+        {
+            return -1;
+        }
+        try (Stream<Path> s = Files.list(fds))
+        {
+            return s.count();
+        }
     }
 
 

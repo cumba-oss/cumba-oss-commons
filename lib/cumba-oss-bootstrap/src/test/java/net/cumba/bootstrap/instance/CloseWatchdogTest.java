@@ -11,6 +11,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Level;
 import org.junit.jupiter.api.Test;
 
 // the Closeables here are counters behind a lambda, not resources
@@ -59,7 +60,11 @@ class CloseWatchdogTest
             throw new IOException("already closed");
         };
         watchdog.guard(target, 10);
-        assertEquals(1, scheduler.fireAll());
+        try (LogCapture log = LogCapture.on(CloseWatchdog.class))
+        {
+            assertEquals(1, scheduler.fireAll());
+            log.assertLogged(Level.FINE, "watchdog close: java.io.IOException: already closed");
+        }
     }
 
 

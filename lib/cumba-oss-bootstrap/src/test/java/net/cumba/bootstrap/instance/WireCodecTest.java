@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.StandardProtocolFamily;
@@ -57,6 +58,74 @@ class WireCodecTest
         public int write(ByteBuffer aSrc)
         {
             throw new UnsupportedOperationException();
+        }
+
+
+        @Override
+        public boolean isOpen()
+        {
+            return true;
+        }
+
+
+        @Override
+        public void close()
+        {
+        }
+    }
+
+
+    /**
+     * A channel that moves at most one byte per call and answers every other read with 0 bytes -
+     * what a channel may do: a short read, and an empty one, are not the end of the stream.
+     */
+    private static final class Trickle implements ByteChannel
+    {
+
+        private final ByteBuffer data;
+
+        private final ByteArrayOutputStream written = new ByteArrayOutputStream();
+
+        private boolean idle;
+
+        Trickle(byte[] aBytes)
+        {
+            data = ByteBuffer.wrap(aBytes);
+        }
+
+
+        @Override
+        public int read(ByteBuffer aDst)
+        {
+            idle = !idle;
+            if (idle)
+            {
+                return 0;
+            }
+            if (!data.hasRemaining())
+            {
+                return -1;
+            }
+            aDst.put(data.get());
+            return 1;
+        }
+
+
+        @Override
+        public int write(ByteBuffer aSrc)
+        {
+            int n = Math.min(aSrc.remaining(), 64 * 1024);
+            for (int i = 0; i < n; i++)
+            {
+                written.write(aSrc.get());
+            }
+            return n;
+        }
+
+
+        byte[] written()
+        {
+            return written.toByteArray();
         }
 
 
@@ -134,6 +203,34 @@ class WireCodecTest
         assertThrows(EOFException.class, () -> WireCodec.read(new Loopback(bytes)));
         assertThrows(EOFException.class, () -> WireCodec.read(new Loopback(new byte[2])),
                 "a header cut short");
+    }
+
+
+    @Test
+    void anEmptyReadIsNotTheEndOfTheStream() throws Exception
+    {
+        try (Trickle out = new Trickle(new byte[0]))
+        {
+            WireCodec.write(out, "BUSY\nSTARTING");
+            assertEquals("BUSY\nSTARTING", WireCodec.read(new Trickle(out.written())));
+        }
+    }
+
+
+    @Test
+    void aFrameOfExactlyTheCapIsWrittenAndRead() throws Exception
+    {
+        // the cap is inclusive on both sides; the writer loops over partial writes
+        String text = "x".repeat(WireCodec.MAX_FRAME_BYTES);
+        byte[] frame;
+        try (Trickle out = new Trickle(new byte[0]))
+        {
+            WireCodec.write(out, text);
+            frame = out.written();
+        }
+        assertEquals(4 + WireCodec.MAX_FRAME_BYTES, frame.length);
+        assertEquals(WireCodec.MAX_FRAME_BYTES, ByteBuffer.wrap(frame).getInt());
+        assertEquals(text, WireCodec.read(new Loopback(frame)));
     }
 
 
