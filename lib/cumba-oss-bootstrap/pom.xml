@@ -140,13 +140,11 @@
             onto the '\' separator while treating a literal '\' as the glob
             escape, exactly as sun.nio.fs.Globs does.
 
-            Version is declared here rather than in the parent: no other module
-            uses jimfs, and the parent pom is shared with concurrent work.
+            The version is managed in the root pom (dependency.jimfs.version).
         -->
         <dependency>
             <groupId>com.google.jimfs</groupId>
             <artifactId>jimfs</artifactId>
-            <version>1.3.2</version>
             <scope>test</scope>
         </dependency>
 
@@ -176,7 +174,6 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>${plugin.maven-jar-plugin.version}</version>
                 <configuration>
                     <archive>
                         <manifest>
