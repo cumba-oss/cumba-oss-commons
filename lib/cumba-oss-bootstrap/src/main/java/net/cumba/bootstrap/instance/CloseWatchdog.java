@@ -113,7 +113,10 @@ public final class CloseWatchdog
 
 
     // The executor lives for the JVM's life (one daemon thread); nothing closes it by design.
-    @SuppressWarnings("PMD.CloseResource")
+    @SuppressWarnings(
+    {
+            "PMD.CloseResource", "resource"
+    })
     private static Scheduler daemonScheduler()
     {
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, r ->
